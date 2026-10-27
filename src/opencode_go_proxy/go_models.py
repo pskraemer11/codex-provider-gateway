@@ -3,6 +3,17 @@
 The public Go catalog can change independently of the wire contract. A model
 is only exposed dynamically after its Chat, Messages, or Responses family has
 been documented or otherwise verified.
+
+LOCAL FORK PATCH (2026-10-27, AI+IDE-Hints): upstream 4a3729 predates the
+Go lineup of 27.10.2026. Five models have a documented endpoint family in
+OpenCode's own Go docs, so they are certified here without an upstream bump:
+  gpt-6-luna           -> openai_responses   (/go/openai/v1/responses)
+  claude-haiku-5-5     -> anthropic_messages (/go/anthropic/v1/messages)
+  minimax-m3.1-flash   -> openai_chat        (/go/openai/v1/chat/completions)
+  mimo-v2.6-flash      -> openai_chat        (/go/openai/v1/chat/completions)
+  mimo-v2.6-pro        -> openai_chat        (/go/openai/v1/chat/completions)
+Keep this block when rebasing onto a newer upstream commit, and drop each
+entry once upstream lists it.
 """
 
 from __future__ import annotations
@@ -17,6 +28,7 @@ DOCUMENTED_RESPONSES_MODELS: Final = frozenset(
     {
         "grok-4.6",
         "gpt-5.6-luna",
+        "gpt-6-luna",
         "muse-spark-1.3-contributor",
         "muse-spark-1.2-contributor",
     }
@@ -38,6 +50,9 @@ DOCUMENTED_CHAT_MODELS: Final = frozenset(
         "deepseek-v4-flash-vision-exp",
         "mimo-v2.5",
         "mimo-v2.5-pro",
+        "mimo-v2.6-flash",
+        "mimo-v2.6-pro",
+        "minimax-m3.1-flash",
         "hy4-preview",
         "hy3",
     }
@@ -53,13 +68,12 @@ DOCUMENTED_MESSAGES_MODELS: Final = frozenset(
         "qwen3.7-max",
         "qwen3.7-plus",
         "qwen3.6-plus",
+        "claude-haiku-5-5",
     }
 )
 
 DOCUMENTED_GO_MODELS: Final = (
-    DOCUMENTED_RESPONSES_MODELS
-    | DOCUMENTED_CHAT_MODELS
-    | DOCUMENTED_MESSAGES_MODELS
+    DOCUMENTED_RESPONSES_MODELS | DOCUMENTED_CHAT_MODELS | DOCUMENTED_MESSAGES_MODELS
 )
 
 # These IDs remain present in the live /models catalog and have a verified
