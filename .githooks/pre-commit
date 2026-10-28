@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# pre-commit — Test-Gate fuer den lokalen Fork
+#
+# Abschnitt 3 der Vorlage ~/.agents/references/githooks/pre-commit, ohne
+# Secret-Scan und Domain-Guard: dieser oeffentliche Fork traegt keine
+# persoenlichen Adressen. Werte stehen in .githooks/test-gate.conf.
+#
+# Warum hier und nicht in der CI: .github/workflows/ci.yml loest nur auf push
+# nach main/master, auf Tags und auf pull_request aus. Ein Push auf einen
+# lokalen Branch startet nichts, CI kann dieses Gate also nicht ersetzen.
+#
+# Variante C: der volle Testlauf startet nur, wenn gestagte Pfade Code
+# beruehren. Die Auswahl entscheidet nur, OB der volle Lauf startet — nie,
+# WELCHE Tests laufen; die Testmenge bleibt vollstaendig. Grund: Commit
+# f9d0dfa aenderte ausschliesslich src/opencode_go_proxy/go_models.py. Ein auf
+# geaenderte Dateien beschraenkter Testlauf haette keine einzige Testdatei
+# ausgewaehlt und den Fehler durchgelassen.
+#
+# Notausstieg nur bei dokumentiertem Notfall: git commit --no-verify
+# ---------------------------------------------------------------------------
+set -u
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# --- Test-Gate: nur bei gestagten Code-Pfaden ---------------------------------
+# Siehe ~/.agents/references/githooks/README.md, Abschnitt "Test-Gate".
+_gate_mode="staged"
+_gate_label="COMMIT"
+_gate_conf=".githooks/test-gate.conf"
+if [ "${GITHOOKS_TEST_GATE:-1}" = "0" ]; then
+  echo "Test-Gate: GITHOOKS_TEST_GATE=0 - uebersprungen."
+elif [ -f "$_gate_conf" ]; then
+  set +e
+  _gate_prefixes=""
+  _gate_python=""
+  _gate_lint=""
+  _gate_test=""
+  while IFS= read -r _line; do
+    case "$_line" in ''|'#'*) continue ;; esac
+    _key=${_line%%=*}
+    _val=${_line#*=}
+    case "$_key" in
+      prefixes) _gate_prefixes="$_val" ;;
+      python)   _gate_python="$_val" ;;
+      lint)     _gate_lint="$_val" ;;
+      test)     _gate_test="$_val" ;;
+    esac
+  done < "$_gate_conf"
+
+  if [ -z "$_gate_python" ] || [ ! -x "$_gate_python" ]; then
+    _gate_python=$(command -v python || command -v python3 || true)
+  fi
+
+  case "$_gate_lint $_gate_test" in
+    *'{python}'*)
+      if [ -z "$_gate_python" ]; then
+        echo "" >&2
+        echo "${_gate_label} BLOCKIERT - kein Python-Interpreter gefunden." >&2
+        echo "  Erwartet: python im PATH oder python= in $_gate_conf." >&2
+        exit 1
+      fi
+      ;;
+  esac
+
+  _gate_lint=${_gate_lint//\{python\}/$_gate_python}
+  _gate_test=${_gate_test//\{python\}/$_gate_python}
+
+  _gate_needed=0
+  if [ "$_gate_mode" = "all" ]; then
+    _gate_needed=1
+  else
+    while IFS= read -r -d '' _file; do
+      for _p in $_gate_prefixes; do
+        case "$_file" in "$_p"*) _gate_needed=1; break ;; esac
+      done
+      [ "$_gate_needed" -eq 1 ] && break
+    done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+  fi
+
+  if [ "$_gate_needed" -eq 0 ]; then
+    echo "Test-Gate: keine passenden Pfade gestaged - uebersprungen."
+  elif [ -z "$_gate_lint" ] && [ -z "$_gate_test" ]; then
+    echo "Test-Gate: weder lint noch test konfiguriert - uebersprungen." >&2
+  else
+    _gate_failed=0
+    for _cmd in "$_gate_lint" "$_gate_test"; do
+      [ -n "$_cmd" ] || continue
+      echo "Test-Gate: $_cmd"
+      sh -c "$_cmd"
+      [ $? -eq 0 ] || _gate_failed=1
+    done
+    if [ "$_gate_failed" -ne 0 ]; then
+      echo "" >&2
+      echo "${_gate_label} BLOCKIERT - Test-Gate fehlgeschlagen." >&2
+      echo "  Konfiguration: $_gate_conf" >&2
+      echo "  Notausstieg nur bei dokumentiertem Notfall: --no-verify" >&2
+      exit 1
+    fi
+  fi
+fi
+
+exit 0

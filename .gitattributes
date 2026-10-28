@@ -1,0 +1,4 @@
+# Hooks laufen ueber die Bash von Git for Windows. Mit core.autocrlf=true
+# wuerde ein CRLF im Shebang den Interpreter zu "bash\r" machen; die Hooks
+# waeren dann still unbrauchbar. LF im Arbeitsbaum erzwingen.
+.githooks/* text eol=lf

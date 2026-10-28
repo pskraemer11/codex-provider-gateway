@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- Local test gate under `.githooks/`, activated per clone with
+  `git config core.hooksPath .githooks`. `pre-commit` runs Ruff and the full
+  suite when a staged path starts with `src/`, `tests/`, `contrib/` or
+  `scripts/`; `pre-push` always runs both. The prefix check decides whether the
+  suite runs, never which tests, so it cannot narrow coverage. Prefixes,
+  interpreter and commands live in `.githooks/test-gate.conf`, so the hooks are
+  section 3 of the templates in `~/.agents/references/githooks/` without the
+  secret scan and domain guard. `GITHOOKS_TEST_GATE=0` skips the gate for
+  invocations that start the hook for another purpose, such as a CI privacy
+  check. Upstream CI cannot replace this gate because
+  its workflow ignores local branches.
+
 ### Security
 
 - Validate the actual client address and require a separate caller token for
