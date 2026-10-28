@@ -3,8 +3,12 @@
 import io
 import json
 import os
+import time
 import urllib.error
 from unittest import mock
+
+import pytest
+from support import POSIX_PERMISSIONS
 
 from opencode_go_proxy import __version__, updates
 
@@ -96,6 +100,27 @@ class TestTtlCache:
         assert second.latest == _NEWER
         assert second.available is True
 
+    def test_future_mtime_is_clamped_to_a_fresh_cache(self) -> None:
+        # Coarse filesystem timestamps can put a just-written cache slightly in
+        # the future. That must read as age zero, not as older than any TTL.
+        with mock.patch(_urlopen_path(), return_value=_release(_NEWER_TAG)):
+            updates.check_for_updates(force=True)
+        future = time.time() + 60
+        os.utime(updates._cache_path(), (future, future))
+        with mock.patch(_urlopen_path(), side_effect=AssertionError("network must not be touched")):
+            info = updates.check_for_updates()
+        assert info.latest == _NEWER
+
+    def test_future_mtime_still_rechecks_when_ttl_is_zero(self) -> None:
+        with mock.patch(_urlopen_path(), return_value=_release(_NEWER_TAG)):
+            updates.check_for_updates(force=True)
+        future = time.time() + 60
+        os.utime(updates._cache_path(), (future, future))
+        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_UPDATE_TTL_HOURS": "0"}, clear=False), \
+             mock.patch(_urlopen_path(), return_value=_release("v0.4.1")):
+            info = updates.check_for_updates()
+        assert info.latest == "0.4.1"
+
     def test_force_bypasses_cache(self) -> None:
         with mock.patch(_urlopen_path(), return_value=_release(_NEWER_TAG)):
             updates.check_for_updates(force=True)
@@ -114,6 +139,8 @@ class TestTtlCache:
     def test_cache_file_mode_0600_under_state_dir(self) -> None:
         import stat
 
+        if not POSIX_PERMISSIONS:
+            pytest.skip("POSIX permission bits do not exist on this platform")
         with mock.patch(_urlopen_path(), return_value=_release(_NEWER_TAG)):
             updates.check_for_updates(force=True)
         assert updates._cache_path().endswith("update-check.json")

@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 import pytest
+from support import isolated_env
 
 from opencode_go_proxy.app import ResponsesProxyHandler
 from opencode_go_proxy.config import ProxyConfig
@@ -146,7 +147,10 @@ def test_concurrent_nonstream_requests_do_not_interleave(pair) -> None:
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(N)]
     # One env patch on the main thread; per-thread patch.dict races on PATH.
-    with mock.patch.dict(os.environ, {"OPENCODE_GO_API_KEY": "test-key"}, clear=True):
+    # clear=True must not drop the state dir: isolated_env() keeps it.
+    with mock.patch.dict(
+        os.environ, isolated_env(OPENCODE_GO_API_KEY="test-key"), clear=True
+    ):
         for t in threads:
             t.start()
         for t in threads:
@@ -170,7 +174,9 @@ def test_concurrent_streams_are_isolated(pair) -> None:
             errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(3)]
-    with mock.patch.dict(os.environ, {"OPENCODE_GO_API_KEY": "test-key"}, clear=True):
+    with mock.patch.dict(
+        os.environ, isolated_env(OPENCODE_GO_API_KEY="test-key"), clear=True
+    ):
         for t in threads:
             t.start()
         for t in threads:

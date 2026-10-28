@@ -13,6 +13,7 @@ from typing import ClassVar
 from unittest import mock
 
 import pytest
+from support import isolated_env
 
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 
@@ -235,7 +236,7 @@ class TestChatCompletionsPassthrough:
         failed = mock.MagicMock()
         failed.returncode = 1
         failed.stdout = ""
-        with mock.patch.dict(os.environ, {}, clear=True), \
+        with mock.patch.dict(os.environ, isolated_env(), clear=True), \
              mock.patch("opencode_go_proxy.secrets.subprocess.run", return_value=failed):
             resp, raw = post(port, "/v1/chat/completions", chat_body())
 
@@ -250,7 +251,7 @@ class TestChatCompletionsPassthrough:
         failed = mock.MagicMock()
         failed.returncode = 1
         failed.stdout = ""
-        with mock.patch.dict(os.environ, {}, clear=True), \
+        with mock.patch.dict(os.environ, isolated_env(), clear=True), \
              mock.patch("opencode_go_proxy.secrets.subprocess.run", return_value=failed):
             resp, raw = post(port, "/v1/chat/completions", chat_body(stream=True))
 

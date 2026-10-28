@@ -15,6 +15,19 @@
 - Avoid reverse-DNS lookup delays while starting the local listener.
 - Clarify the project's independent, single-user credential and policy boundary.
 
+### Fixed
+
+- Update check: a cache age that comes out slightly negative (filesystem
+  timestamps are coarser than `time.time()`) is now clamped to zero instead of
+  outranking the freshness window, so a just-written cache is served while
+  `OPENCODE_GO_PROXY_UPDATE_TTL_HOURS=0` still disables caching.
+- Test suite on Windows: scrubbed environments keep the per-test state dir,
+  fake `codex` binaries run through an interpreter shim, and POSIX-only mode
+  assertions are guarded, so the suite passes on NTFS as well as on Linux.
+- Local fork: the five models certified in `go_models.py` are also present in
+  the checked-in seed catalog, and the documented-model counts follow them, so
+  the documented set stays a subset of `contrib/opencode-go-models.json`.
+
 ## [0.4.10] - 2026-08-14
 
 ## [0.4.8] - 2026-08-14

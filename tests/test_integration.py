@@ -11,6 +11,7 @@ from http.client import HTTPConnection
 from unittest import mock
 
 import pytest
+from support import isolated_env
 
 from opencode_go_proxy.app import ProxyConfig, ProxyHTTPServer, ResponsesProxyHandler
 
@@ -214,7 +215,7 @@ class TestResponsesRoundTrip:
         failed_completed = mock.MagicMock()
         failed_completed.returncode = 1
         failed_completed.stdout = ""
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch("opencode_go_proxy.secrets.subprocess.run", return_value=failed_completed):
+        with mock.patch.dict(os.environ, isolated_env(), clear=True), mock.patch("opencode_go_proxy.secrets.subprocess.run", return_value=failed_completed):
             conn = HTTPConnection("127.0.0.1", port, timeout=5)
             conn.request("POST", "/v1/responses",
                          json.dumps({"model": "deepseek-v4-flash", "input": "hi"}),
@@ -284,7 +285,7 @@ class TestStreamingResponse:
         failed_completed = mock.MagicMock()
         failed_completed.returncode = 1
         failed_completed.stdout = ""
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch("opencode_go_proxy.secrets.subprocess.run", return_value=failed_completed):
+        with mock.patch.dict(os.environ, isolated_env(), clear=True), mock.patch("opencode_go_proxy.secrets.subprocess.run", return_value=failed_completed):
             conn = HTTPConnection("127.0.0.1", port, timeout=5)
             conn.request("POST", "/v1/responses",
                          json.dumps({"model": "deepseek-v4-flash", "input": "hi", "stream": True}),

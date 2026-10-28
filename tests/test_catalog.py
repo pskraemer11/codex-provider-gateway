@@ -155,8 +155,10 @@ class MergedModelSlugsTests(unittest.TestCase):
                 self._write_merged(path, ["a", "b", "c"])
                 os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
                 self.assertEqual(merged_model_slugs(), ["a", "b"])
-                # Touching the mtime invalidates the memo: re-read.
-                os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1))
+                # Touching the mtime invalidates the memo: re-read. A one-ns
+                # bump is below NTFS granularity (~100ns), so step a whole
+                # millisecond to stay observable on every filesystem.
+                os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
                 self.assertEqual(merged_model_slugs(), ["a", "b", "c"])
                 # Removing the file flips mtime back to None: re-read to empty.
                 os.unlink(path)

@@ -8,6 +8,7 @@ from http.server import ThreadingHTTPServer
 from unittest import mock
 
 import pytest
+from support import write_python_executable
 
 from opencode_go_proxy import codex_tools
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
@@ -81,10 +82,7 @@ else:
 
 @pytest.fixture
 def fake_codex_bin(tmp_path) -> str:
-    path = tmp_path / "fake-codex"
-    path.write_text(FAKE_BIN)
-    path.chmod(0o755)
-    return str(path)
+    return write_python_executable(tmp_path / "fake-codex", FAKE_BIN)
 
 
 def snapshot_names(tools=None) -> set[str]:

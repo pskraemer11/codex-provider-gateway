@@ -9,6 +9,7 @@ import os
 from unittest import mock
 
 import pytest
+from support import POSIX_PERMISSIONS, write_python_executable
 
 from opencode_go_proxy import config_manager
 
@@ -23,13 +24,9 @@ def cfg_path(tmp_path, monkeypatch) -> str:
 @pytest.fixture(autouse=True)
 def fake_codex_bin(tmp_path, monkeypatch) -> str:
     """Point OPENCODE_GO_PROXY_CODEX_BIN at a script that accepts multi_agent_v2."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    codex = bin_dir / "codex"
-    codex.write_text("#!/bin/sh\nexit 0\n")
-    codex.chmod(0o755)
-    monkeypatch.setenv("OPENCODE_GO_PROXY_CODEX_BIN", str(codex))
-    return str(codex)
+    codex = write_python_executable(tmp_path / "bin" / "codex", "raise SystemExit(0)\n")
+    monkeypatch.setenv("OPENCODE_GO_PROXY_CODEX_BIN", codex)
+    return codex
 
 
 def _read(path: str) -> str:
@@ -62,12 +59,10 @@ class TestEnable:
         assert 'wire_api = "responses"' in text
 
     def test_omits_feature_block_when_probe_fails(self, cfg_path, tmp_path, monkeypatch) -> None:
-        bin_dir = tmp_path / "bin-fail"
-        bin_dir.mkdir()
-        codex = bin_dir / "codex"
-        codex.write_text("#!/bin/sh\nexit 1\n")
-        codex.chmod(0o755)
-        monkeypatch.setenv("OPENCODE_GO_PROXY_CODEX_BIN", str(codex))
+        codex = write_python_executable(
+            tmp_path / "bin-fail" / "codex", "raise SystemExit(1)\n"
+        )
+        monkeypatch.setenv("OPENCODE_GO_PROXY_CODEX_BIN", codex)
         report = config_manager.enable()
         assert report["multi_agent_v2"] is False
         text = _read(cfg_path)
@@ -96,7 +91,8 @@ class TestEnable:
         nested = tmp_path / "codex" / "config.toml"
         monkeypatch.setenv("OPENCODE_GO_PROXY_CONFIG_PATH", str(nested))
         config_manager.enable()
-        assert (nested.stat().st_mode & 0o777) == 0o600
+        if POSIX_PERMISSIONS:
+            assert (nested.stat().st_mode & 0o777) == 0o600
 
     def test_preserves_user_root_and_tables(self, cfg_path) -> None:
         user = (

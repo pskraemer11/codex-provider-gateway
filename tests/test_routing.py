@@ -175,14 +175,18 @@ class ZenRouteTargetTests(unittest.TestCase):
         }
         with open(path, "w") as handle:
             json.dump(compact, handle)
-        os.utime(path, ns=(os.stat(path).st_mtime_ns + 10**9, os.stat(path).st_mtime_ns + 10**9))
+        # Fixed, strictly increasing stamps: the Windows file clock ticks in
+        # ~15.6ms steps, so "current mtime + 1s" can land on the same value for
+        # two quick writes and leave the mtime cache looking unchanged.
+        base = os.stat(path).st_mtime_ns
+        os.utime(path, ns=(base + 10**9, base + 10**9))
         # Same path, newer content: the mtime cache must re-read the go set.
         self.assertEqual(route_target("zen-only-test-model"), "opencode_go")
 
         compact["models"] = []
         with open(path, "w") as handle:
             json.dump(compact, handle)
-        os.utime(path, ns=(os.stat(path).st_mtime_ns + 10**9, os.stat(path).st_mtime_ns + 10**9))
+        os.utime(path, ns=(base + 2 * 10**9, base + 2 * 10**9))
         self.assertEqual(route_target("zen-only-test-model"), "zen")
 
     def test_opencode_go_prefix_wins_over_zen(self) -> None:

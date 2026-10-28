@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 from unittest import mock
 
+from support import POSIX_PERMISSIONS
+
 from opencode_go_proxy import updates
 
 
@@ -14,10 +16,12 @@ def test_update_cache_creates_parent_and_uses_private_permissions(
     updates._write_cache(payload)
     path = Path(updates._cache_path())
     assert json.loads(path.read_text()) == payload
-    assert path.stat().st_mode & 0o777 == 0o600
+    if POSIX_PERMISSIONS:
+        assert path.stat().st_mode & 0o777 == 0o600
     path.chmod(0o644)
     updates._write_cache({"latest": "1.2.4"})
-    assert path.stat().st_mode & 0o777 == 0o600
+    if POSIX_PERMISSIONS:
+        assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_failed_replace_preserves_previous_cache(tmp_path, monkeypatch):

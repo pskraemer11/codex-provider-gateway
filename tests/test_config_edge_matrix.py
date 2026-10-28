@@ -15,6 +15,7 @@ import os
 import tomllib
 
 import pytest
+from support import POSIX_PERMISSIONS, write_python_executable
 
 from opencode_go_proxy import config_manager
 
@@ -49,13 +50,9 @@ def cfg_path(tmp_path, monkeypatch) -> str:
 @pytest.fixture(autouse=True)
 def fake_codex_bin(tmp_path, monkeypatch) -> str:
     """Point OPENCODE_GO_PROXY_CODEX_BIN at a script that accepts multi_agent_v2."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    codex = bin_dir / "codex"
-    codex.write_text("#!/bin/sh\nexit 0\n")
-    codex.chmod(0o755)
-    monkeypatch.setenv("OPENCODE_GO_PROXY_CODEX_BIN", str(codex))
-    return str(codex)
+    codex = write_python_executable(tmp_path / "bin" / "codex", "raise SystemExit(0)\n")
+    monkeypatch.setenv("OPENCODE_GO_PROXY_CODEX_BIN", codex)
+    return codex
 
 
 def _read(path: str) -> str:
@@ -276,4 +273,5 @@ class TestBackupGate:
         assert len(backups) == 1, f"expected exactly one backup, got {backups!r}"
         backup_path = os.path.join(directory, backups[0])
         assert _read(backup_path) == before, "backup must hold the pre-edit content byte-for-byte"
-        assert (os.stat(backup_path).st_mode & 0o777) == 0o600, "backup must keep mode 0600"
+        if POSIX_PERMISSIONS:
+            assert (os.stat(backup_path).st_mode & 0o777) == 0o600, "backup must keep mode 0600"

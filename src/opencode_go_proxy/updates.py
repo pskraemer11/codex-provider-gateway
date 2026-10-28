@@ -170,9 +170,15 @@ def _read_cache() -> Json | None:
 
 
 def _cache_age_seconds() -> float | None:
-    """Seconds since the cache was written; None when it does not exist."""
+    """Seconds since the cache was written; None when it does not exist.
+
+    Clamped at zero: filesystem timestamps are coarser than time.time(), so a
+    cache written microseconds ago can look future-dated (NTFS steps in ~100ns
+    while the Windows system clock steps in ~15.6ms). A negative age would
+    otherwise outrank a TTL of 0 and keep a disabled cache alive.
+    """
     try:
-        return time.time() - os.path.getmtime(_cache_path())
+        return max(0.0, time.time() - os.path.getmtime(_cache_path()))
     except OSError:
         return None
 

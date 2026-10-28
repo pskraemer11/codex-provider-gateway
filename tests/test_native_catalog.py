@@ -4,6 +4,8 @@ import json
 import os
 from unittest import mock
 
+from support import write_python_executable
+
 from opencode_go_proxy import catalog, native_models
 from opencode_go_proxy.meter import state_dir
 
@@ -42,17 +44,16 @@ NATIVE_FIXTURE = {
 }
 
 
-def _write_fake_codex_bin(bin_path) -> None:
+def _write_fake_codex_bin(bin_path, payload=None) -> str:
+    """Write a fake codex binary; return the path to invoke (a shim on Windows)."""
     script = (
-        "#!/usr/bin/env python3\n"
         "import json, sys\n"
         "if sys.argv[1] == '--version':\n"
         "    print('codex-cli 0.146.0-test')\n"
         "else:\n"
-        "    print('" + json.dumps(NATIVE_FIXTURE) + "')\n"
+        "    print('" + json.dumps(NATIVE_FIXTURE if payload is None else payload) + "')\n"
     )
-    bin_path.write_text(script)
-    bin_path.chmod(0o755)
+    return write_python_executable(bin_path, script)
 
 
 def _seed_native_capture(models: list[dict] | None = None) -> None:
@@ -70,9 +71,8 @@ def _seed_native_capture(models: list[dict] | None = None) -> None:
 
 
 def test_capture_runs_fake_codex_and_writes_snapshot(tmp_path) -> None:
-    bin_path = tmp_path / "codex"
-    _write_fake_codex_bin(bin_path)
-    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: str(bin_path)}):
+    codex_bin = _write_fake_codex_bin(tmp_path / "codex")
+    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: codex_bin}):
         snapshot = native_models.capture_native_models()
     assert [m["slug"] for m in snapshot["models"]] == ["gpt-5.6-luna", "gpt-5.6-terra"]
     assert snapshot["captured_with"] == "codex-cli 0.146.0-test"
@@ -101,26 +101,15 @@ def test_capture_excludes_prefixed_and_opencode_go_slugs(tmp_path) -> None:
             {"slug": "deepseek-v4-flash", "display_name": "Bare opencode-go"},
         ]
     }
-    bin_path = tmp_path / "codex"
-    script = (
-        "#!/usr/bin/env python3\n"
-        "import json, sys\n"
-        "if sys.argv[1] == '--version':\n"
-        "    print('codex-cli 0.146.0-test')\n"
-        "else:\n"
-        "    print('" + json.dumps(polluted) + "')\n"
-    )
-    bin_path.write_text(script)
-    bin_path.chmod(0o755)
-    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: str(bin_path)}):
+    codex_bin = _write_fake_codex_bin(tmp_path / "codex", polluted)
+    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: codex_bin}):
         snapshot = native_models.capture_native_models()
     assert {m["slug"] for m in snapshot["models"]} == {"gpt-5.6-luna"}
 
 
 def test_dry_run_prints_and_does_not_write(tmp_path, capsys) -> None:
-    bin_path = tmp_path / "codex"
-    _write_fake_codex_bin(bin_path)
-    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: str(bin_path)}):
+    codex_bin = _write_fake_codex_bin(tmp_path / "codex")
+    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: codex_bin}):
         rc = native_models.native_capture_cmd(["--dry-run"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -130,9 +119,8 @@ def test_dry_run_prints_and_does_not_write(tmp_path, capsys) -> None:
 
 
 def test_capture_writes_and_prints_target(tmp_path, capsys) -> None:
-    bin_path = tmp_path / "codex"
-    _write_fake_codex_bin(bin_path)
-    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: str(bin_path)}):
+    codex_bin = _write_fake_codex_bin(tmp_path / "codex")
+    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: codex_bin}):
         rc = native_models.native_capture_cmd([])
     assert rc == 0
     out = capsys.readouterr().out

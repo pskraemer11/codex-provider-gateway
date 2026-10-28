@@ -7,6 +7,8 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
+from support import POSIX_PERMISSIONS
+
 from opencode_go_proxy import ops
 
 
@@ -318,7 +320,8 @@ class TestSupportBundle:
         assert data["logs"]["tail"]["opencode-go-proxy.err"]
         assert data["catalog"]["modelCount"] >= 2
         assert data["doctor"]["checks"]
-        assert (out.stat().st_mode & 0o777) == 0o600
+        if POSIX_PERMISSIONS:
+            assert (out.stat().st_mode & 0o777) == 0o600
 
     def test_default_output_path(self, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
