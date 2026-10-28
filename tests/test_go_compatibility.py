@@ -71,7 +71,7 @@ def response(value: dict) -> mock.Mock:
     )
 
 
-def test_documented_catalog_has_all_33_models_in_their_official_families() -> None:
+def test_documented_go_catalog_family_counts() -> None:
     assert len(DOCUMENTED_GO_MODELS) == 33
     assert len(DOCUMENTED_RESPONSES_MODELS) == 5
     assert len(DOCUMENTED_CHAT_MODELS) == 19
@@ -85,6 +85,9 @@ def test_documented_catalog_has_all_33_models_in_their_official_families() -> No
     assert {go_family_for(model) for model in DOCUMENTED_MESSAGES_MODELS} == {
         ANTHROPIC_MESSAGES
     }
+
+
+def test_documented_go_catalog_is_covered_by_the_seed_catalog() -> None:
     seed = catalog.load_seed_compact()
     assert seed is not None
     assert DOCUMENTED_GO_MODELS <= {

@@ -27,6 +27,12 @@
 - Local fork: the five models certified in `go_models.py` are also present in
   the checked-in seed catalog, and the documented-model counts follow them, so
   the documented set stays a subset of `contrib/opencode-go-models.json`.
+- `scripts/make-compact-catalog.py` refuses to shrink the seed catalog: when
+  the full-shape input produces fewer models than `contrib/opencode-go-models.json`
+  already holds, it exits with a message instead of rewriting the file.
+- The documented-catalog test is split into a count check and a seed-coverage
+  check, so a half-updated catalog reports both breaks in one run instead of
+  revealing them one after the other.
 
 ## [0.4.10] - 2026-08-14
 

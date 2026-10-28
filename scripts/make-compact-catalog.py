@@ -40,6 +40,15 @@ def compact_model(full_model: dict) -> dict:
     return record
 
 
+def existing_model_count() -> int | None:
+    """Return how many models the compact catalog holds, or None if absent."""
+    if not COMPACT_PATH.exists():
+        return None
+    with open(COMPACT_PATH, encoding="utf-8") as f:
+        existing = json.load(f)
+    return len(existing.get("models", []))
+
+
 def main() -> None:
     with open(FULL_PATH, encoding="utf-8") as f:
         full = json.load(f)
@@ -55,10 +64,18 @@ def main() -> None:
         "client_version": CLIENT_VERSION,
         "models": [compact_model(model) for model in models],
     }
+    held = existing_model_count()
+    produced = len(compact["models"])
+    if held is not None and held > produced:
+        raise SystemExit(
+            f"refusing to shrink {COMPACT_PATH.name}: it holds {held} models but "
+            f"{FULL_PATH.name} only produced {produced}. Update the full-shape "
+            f"catalog first, or delete {COMPACT_PATH.name} on purpose."
+        )
     with open(COMPACT_PATH, "w", encoding="utf-8") as f:
         json.dump(compact, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print(f"wrote {COMPACT_PATH} ({len(compact['models'])} models, {COMPACT_PATH.stat().st_size} bytes)")
+    print(f"wrote {COMPACT_PATH} ({produced} models, {COMPACT_PATH.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
