@@ -33,6 +33,10 @@
 - The documented-catalog test is split into a count check and a seed-coverage
   check, so a half-updated catalog reports both breaks in one run instead of
   revealing them one after the other.
+- `tests/test_make_compact_catalog.py` exercises the generator against a
+  temporary directory: the shrink guard, genuine growth, a missing target file
+  and a full-shape catalog without models. The script accepts its paths as
+  arguments so it can be driven without touching `contrib/`.
 
 ## [0.4.10] - 2026-08-14
 

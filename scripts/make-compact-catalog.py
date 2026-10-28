@@ -40,21 +40,21 @@ def compact_model(full_model: dict) -> dict:
     return record
 
 
-def existing_model_count() -> int | None:
+def existing_model_count(compact_path: Path = COMPACT_PATH) -> int | None:
     """Return how many models the compact catalog holds, or None if absent."""
-    if not COMPACT_PATH.exists():
+    if not compact_path.exists():
         return None
-    with open(COMPACT_PATH, encoding="utf-8") as f:
+    with open(compact_path, encoding="utf-8") as f:
         existing = json.load(f)
     return len(existing.get("models", []))
 
 
-def main() -> None:
-    with open(FULL_PATH, encoding="utf-8") as f:
+def main(full_path: Path = FULL_PATH, compact_path: Path = COMPACT_PATH) -> None:
+    with open(full_path, encoding="utf-8") as f:
         full = json.load(f)
     models = full.get("models")
     if not models:
-        raise SystemExit(f"{FULL_PATH} contains no models")
+        raise SystemExit(f"{full_path} contains no models")
     shared_instructions = models[0]["base_instructions"]
 
     compact = {
@@ -64,18 +64,18 @@ def main() -> None:
         "client_version": CLIENT_VERSION,
         "models": [compact_model(model) for model in models],
     }
-    held = existing_model_count()
+    held = existing_model_count(compact_path)
     produced = len(compact["models"])
     if held is not None and held > produced:
         raise SystemExit(
-            f"refusing to shrink {COMPACT_PATH.name}: it holds {held} models but "
-            f"{FULL_PATH.name} only produced {produced}. Update the full-shape "
-            f"catalog first, or delete {COMPACT_PATH.name} on purpose."
+            f"refusing to shrink {compact_path.name}: it holds {held} models but "
+            f"{full_path.name} only produced {produced}. Update the full-shape "
+            f"catalog first, or delete {compact_path.name} on purpose."
         )
-    with open(COMPACT_PATH, "w", encoding="utf-8") as f:
+    with open(compact_path, "w", encoding="utf-8") as f:
         json.dump(compact, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print(f"wrote {COMPACT_PATH} ({produced} models, {COMPACT_PATH.stat().st_size} bytes)")
+    print(f"wrote {compact_path} ({produced} models, {compact_path.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
