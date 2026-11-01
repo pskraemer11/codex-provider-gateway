@@ -35,7 +35,8 @@
 
     Display this script's detailed help.
 .NOTES
-    Requires PowerShell 7, Task Scheduler cmdlets, and uv in a standard location.
+    Requires PowerShell 7 and Task Scheduler cmdlets. The watchdog prefers the
+    installed proxy command and uses uv only as a checkout fallback.
 #>
 #Requires -Version 7.0
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
@@ -76,23 +77,14 @@ if ($Uninstall) {
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $watchdogPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "watchdog-proxy.ps1"))
+$installDirectory = Join-Path $env:LOCALAPPDATA "opencode-go-proxy\bin"
+$installedWatchdogPath = Join-Path $installDirectory "watchdog-proxy.ps1"
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "pyproject.toml") -PathType Leaf)) {
     throw "Run this installer from the checked-out opencode-go-proxy repository."
 }
 if (-not (Test-Path -LiteralPath $watchdogPath -PathType Leaf)) {
     throw "Proxy watchdog script is missing."
 }
-if (-not (Get-Command uv -CommandType Application -ErrorAction SilentlyContinue)) {
-    $userProfile = [Environment]::GetFolderPath("UserProfile")
-    $uvCandidates = @(
-        (Join-Path $userProfile ".local\bin\uv.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe")
-    )
-    if (-not ($uvCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })) {
-        throw "uv was not found on PATH or in its standard per-user install locations."
-    }
-}
-
 $existingTasks = @{}
 foreach ($taskName in $taskNames) {
     $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -108,6 +100,10 @@ $powerShell = Join-Path $PSHOME "pwsh.exe"
 if (-not (Test-Path -LiteralPath $powerShell -PathType Leaf)) {
     throw "The current PowerShell 7 executable was not found: $powerShell"
 }
+if ($PSCmdlet.ShouldProcess($installedWatchdogPath, "Install the watchdog script outside the checkout")) {
+    New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $watchdogPath -Destination $installedWatchdogPath -Force
+}
 $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet `
@@ -119,7 +115,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -Hidden
-$taskArguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$watchdogPath`" -Port $Port -Quiet"
+$taskArguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$installedWatchdogPath`" -ProjectRoot `"$repoRoot`" -Port $Port -Quiet"
 $action = New-ScheduledTaskAction `
     -Execute $powerShell `
     -Argument $taskArguments `

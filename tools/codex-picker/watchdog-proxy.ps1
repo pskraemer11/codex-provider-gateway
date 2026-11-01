@@ -12,6 +12,12 @@
     Loopback port used by the proxy health check and start request. Defaults to 8787.
 .PARAMETER Quiet
     Suppress status messages in the console. Local watchdog logging remains enabled.
+.PARAMETER Executable
+    Explicit opencode-go-proxy executable. By default the installed command is
+    preferred, with `uv run` from this checkout as a development fallback.
+.PARAMETER ProjectRoot
+    Repository checkout used only for the uv fallback when no installed proxy
+    command is available. Defaults to this script's checkout location.
 .PARAMETER UnboundArguments
     Reserved for the -Help/--help compatibility form. Do not specify directly;
     all other unrecognized arguments are rejected.
@@ -28,7 +34,8 @@
 
     Display this script's detailed help.
 .NOTES
-    Requires PowerShell 7 and uv. Only binds the proxy to 127.0.0.1.
+    Requires PowerShell 7. Uses uv only when no installed proxy command exists.
+    Only binds the proxy to 127.0.0.1.
 #>
 #Requires -Version 7.0
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -36,6 +43,8 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8787,
     [switch]$Quiet,
+    [string]$Executable,
+    [string]$ProjectRoot,
     [Parameter(ValueFromRemainingArguments = $true, DontShow = $true)]
     [string[]]$UnboundArguments
 )
@@ -50,7 +59,12 @@ if ($UnboundArguments) {
 
 $ErrorActionPreference = "Stop"
 $healthUri = "http://127.0.0.1:$Port/health"
-$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+$repoRoot = if ($ProjectRoot) {
+    [System.IO.Path]::GetFullPath($ProjectRoot)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+}
 $localAppData = [Environment]::GetFolderPath("LocalApplicationData")
 $logDirectory = Join-Path $localAppData "opencode-go-proxy\logs"
 $watchdogLog = Join-Path $logDirectory "watchdog.log"
@@ -73,8 +87,9 @@ function Write-Status {
 
 function Test-ProxyHealth {
     try {
-        $null = Invoke-WebRequest -Uri $healthUri -TimeoutSec 3
-        return $true
+        $response = Invoke-WebRequest -Uri $healthUri -TimeoutSec 3
+        $payload = $response.Content | ConvertFrom-Json
+        return $payload.status -eq "ok"
     }
     catch {
         return $false
@@ -97,19 +112,67 @@ function Get-UvPath {
     return $null
 }
 
+function Get-ProxyLaunch {
+    if ($Executable) {
+        $explicit = [System.IO.Path]::GetFullPath($Executable)
+        if (-not (Test-Path -LiteralPath $explicit -PathType Leaf)) {
+            throw "Proxy executable was not found: $explicit"
+        }
+        return [pscustomobject]@{
+            FilePath = $explicit
+            Arguments = @()
+            WorkingDirectory = (Get-Location).Path
+            Mode = "explicit"
+        }
+    }
+
+    $command = Get-Command opencode-go-proxy -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($command) {
+        return [pscustomobject]@{
+            FilePath = [string]$command.Source
+            Arguments = @()
+            WorkingDirectory = (Get-Location).Path
+            Mode = "installed"
+        }
+    }
+
+    $userProfile = [Environment]::GetFolderPath("UserProfile")
+    $installed = Join-Path $userProfile ".local\bin\opencode-go-proxy.exe"
+    if (Test-Path -LiteralPath $installed -PathType Leaf) {
+        return [pscustomobject]@{
+            FilePath = $installed
+            Arguments = @()
+            WorkingDirectory = (Get-Location).Path
+            Mode = "installed"
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "pyproject.toml") -PathType Leaf)) {
+        throw "No installed proxy command was found and the repository checkout is incomplete."
+    }
+    $uv = Get-UvPath
+    if (-not $uv) {
+        throw "No installed proxy command or uv was found."
+    }
+    return [pscustomobject]@{
+        FilePath = $uv
+        Arguments = @("run", "--project", ('"{0}"' -f $repoRoot), "--locked", "opencode-go-proxy")
+        WorkingDirectory = $repoRoot
+        Mode = "checkout"
+    }
+}
+
 if (Test-ProxyHealth) {
     if (-not $Quiet) { Write-Host "Proxy health is OK on port $Port." }
     exit 0
 }
 
-if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "pyproject.toml") -PathType Leaf)) {
-    Write-Status "Proxy project checkout is missing its pyproject.toml."
-    exit 1
+try {
+    $launch = Get-ProxyLaunch
 }
-
-$uv = Get-UvPath
-if (-not $uv) {
-    Write-Status "uv was not found; cannot start the proxy."
+catch {
+    Write-Status $_.Exception.Message
     exit 1
 }
 
@@ -120,7 +183,7 @@ if ($listener) {
     exit 1
 }
 
-if (-not $PSCmdlet.ShouldProcess($healthUri, "Start the proxy from this repository checkout")) {
+if (-not $PSCmdlet.ShouldProcess($healthUri, "Start the proxy")) {
     exit 0
 }
 
@@ -138,26 +201,20 @@ try {
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $stdoutLog = Join-Path $logDirectory "proxy-$stamp.stdout.log"
     $stderrLog = Join-Path $logDirectory "proxy-$stamp.stderr.log"
-    $projectArgument = '"{0}"' -f $repoRoot
-    $arguments = @(
-        "run",
-        "--project",
-        $projectArgument,
-        "--locked",
-        "opencode-go-proxy",
+    $arguments = @($launch.Arguments) + @(
         "--bind",
         "127.0.0.1",
         "--port",
         "$Port"
     )
-    $null = Start-Process -FilePath $uv `
+    $null = Start-Process -FilePath $launch.FilePath `
         -ArgumentList $arguments `
-        -WorkingDirectory $repoRoot `
+        -WorkingDirectory $launch.WorkingDirectory `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog `
         -RedirectStandardError $stderrLog `
         -PassThru
-    Write-Status "Proxy start requested; checking /health."
+    Write-Status "Proxy start requested ($($launch.Mode)); checking /health."
 }
 catch {
     Write-Status "Could not start the proxy process."

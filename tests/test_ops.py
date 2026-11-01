@@ -57,6 +57,17 @@ class TestService:
             c = ops.check_service("http://127.0.0.1:1/health")
         assert c.ok
 
+    def test_rejects_non_proxy_health_payload(self) -> None:
+        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", return_value=MockResp(b'{"status": "up"}')):
+            c = ops.check_service("http://127.0.0.1:1/health")
+        assert not c.ok
+        assert "not ok" in c.detail
+
+    def test_rejects_invalid_health_json(self) -> None:
+        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", return_value=MockResp(b"not-json")):
+            c = ops.check_service("http://127.0.0.1:1/health")
+        assert not c.ok
+
     def test_down(self) -> None:
         with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen",
                         side_effect=urllib.error.URLError("refused")):

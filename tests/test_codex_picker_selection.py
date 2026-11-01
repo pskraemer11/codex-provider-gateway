@@ -66,6 +66,113 @@ def test_openrouter_aa_transport_does_not_fill_missing_intelligence() -> None:
     assert method == "unverified"
 
 
+def test_default_proxy_url_follows_proxy_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENCODE_GO_PROXY_MODELS_URL", raising=False)
+    monkeypatch.setenv("OPENCODE_GO_PROXY_PORT", "8899")
+    assert builder.default_proxy_models_url() == "http://127.0.0.1:8899/v1/models"
+
+
+def test_fetch_proxy_catalog_uses_explicit_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    state = tmp_path / "opencode-go-proxy"
+    state.mkdir()
+    monkeypatch.setenv("OPENCODE_GO_PROXY_STATE_DIR", str(state))
+    (state / "merged-models.json").write_text(
+        json.dumps({"models": [{"slug": "opencode-go/example"}, {"slug": "zen/example"}]}),
+        encoding="utf-8",
+    )
+    requested: list[str] = []
+
+    def fake_get_json(url: str) -> tuple[dict, str]:
+        requested.append(url)
+        return {"data": [{"id": "opencode-go/example"}, {"id": "zen/example"}]}, "live-hash"
+
+    monkeypatch.setattr(builder, "_get_json", fake_get_json)
+    entries, source = builder.fetch_proxy_catalog(tmp_path, "http://127.0.0.1:8899/v1/models")
+
+    assert requested == ["http://127.0.0.1:8899/v1/models"]
+    assert [entry["slug"] for entry in entries] == ["opencode-go/example", "zen/example"]
+    assert source["url"] == requested[0]
+    assert source["live_verified"] is True
+
+
+def test_native_template_uses_explicit_file(tmp_path: Path) -> None:
+    template = tmp_path / "template.json"
+    template.write_text(json.dumps({"models": [{"slug": "native-example"}]}), encoding="utf-8")
+
+    models, source = builder.load_native_catalog_template(template, codex_dir=tmp_path)
+
+    assert models == [{"slug": "native-example"}]
+    assert source["source"] == "file"
+    assert source["path"] == str(template)
+
+
+def test_native_template_falls_back_to_codex_debug_models(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> object:
+        calls.append(command)
+        return type("Result", (), {"returncode": 0, "stdout": '{"models":[{"slug":"native-example"}]}', "stderr": ""})()
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+    models, source = builder.load_native_catalog_template(None, codex_dir=tmp_path, codex_bin="codex-test")
+
+    assert calls == [["codex-test", "debug", "models"]]
+    assert models == [{"slug": "native-example"}]
+    assert source["source"] == "codex-debug-models"
+
+
+def _cached_proxy_audit() -> dict:
+    diagnostic = {
+        "under_price_limit": 0,
+        "direct_aa_identity_match": 0,
+        "score_available": 0,
+        "selected": 0,
+        "highest_score": None,
+    }
+    return {
+        "sources": {
+            "artificial_analysis": {"row_count": 0, "page_count": 0},
+            "openrouter_models": {"row_count": 0},
+            "opencode_proxy": {"cached_provider_model_count": 0, "live_verified": False},
+            "artificial_analysis_snapshot": {"status": "unavailable"},
+        },
+        "selection_diagnostics": {
+            provider: dict(diagnostic) for provider in ("openrouter", "go", "zen")
+        },
+        "calibration_populations": {},
+        "evaluated_candidates": [],
+        "models": [],
+    }
+
+
+@pytest.mark.parametrize(("allow_cached", "expected"), [(False, 1), (True, 0)])
+def test_check_requires_live_proxy_unless_cache_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    allow_cached: bool,
+    expected: int,
+) -> None:
+    catalogs = {provider: {"models": []} for provider in ("openrouter", "go", "zen", "proxy")}
+
+    def fake_build(**kwargs: object) -> tuple[dict, dict]:
+        return catalogs, _cached_proxy_audit()
+
+    argv = ["build_provider_catalogs.py", "--check"]
+    if allow_cached:
+        argv.append("--allow-cached-proxy")
+    monkeypatch.setattr(builder, "build_catalog_data", fake_build)
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert builder.main() == expected
+    output = capsys.readouterr().out
+    if expected:
+        assert "Live-Pruefung verlangt" in output
+    else:
+        assert "Warnung: lokaler Proxy nicht erreichbar" in output
+
+
 def test_coding_agentic_pair_does_not_precede_missing_intelligence() -> None:
     score, method = catalog_rules.score_candidate(
         primary={"coding": 40, "agentic": 80},
@@ -135,13 +242,13 @@ def test_openrouter_intelligence_alone_is_not_an_approved_score_fallback() -> No
 
 
 def test_filter_uses_strict_price_and_score_boundaries() -> None:
-    assert catalog_rules.qualifies_model("0.249999", 70.001)
+    assert catalog_rules.qualifies_model("0.249999", 50.001)
     assert catalog_rules.qualifies_model("0.249999", 99)
     assert not catalog_rules.qualifies_model("0.25", 99)
-    assert not catalog_rules.qualifies_model("0.10", 70)
+    assert not catalog_rules.qualifies_model("0.10", 50)
     assert not catalog_rules.qualifies_model(None, 90)
     assert not catalog_rules.qualifies_model("0.10", None)
-    assert not catalog_rules.qualifies_model("0.022", 65.81818181818182)
+    assert not catalog_rules.qualifies_model("0.022", 49.999)
 
 
 def test_filter_uses_cli_configurable_strict_price_and_score_boundaries() -> None:
@@ -159,8 +266,10 @@ def test_filter_uses_cli_configurable_strict_price_and_score_boundaries() -> Non
 def test_picker_price_cap_is_shared_and_reported() -> None:
     assert catalog_rules.INPUT_PRICE_LIMIT == Decimal("0.25")
     assert builder.INPUT_PRICE_LIMIT is catalog_rules.INPUT_PRICE_LIMIT
+    assert catalog_rules.MIN_CALIBRATED_SCORE == 50.0
+    assert builder.MIN_CALIBRATED_SCORE == catalog_rules.MIN_CALIBRATED_SCORE
     assert builder.selection_criteria_text() == (
-        "Kriterien: Input < $0.25/M Token und kalibrierter AA-Intelligence-Score > 70/100"
+        "Kriterien: Input < $0.25/M Token und kalibrierter AA-Intelligence-Score > 50/100"
     )
     assert builder.selection_criteria_text(Decimal("0.15"), 74) == (
         "Kriterien: Input < $0.15/M Token und kalibrierter AA-Intelligence-Score > 74/100"
@@ -284,20 +393,16 @@ def test_calibration_populations_use_only_live_intelligence() -> None:
     assert sources == {"intelligence": "artificial-analysis-data-api"}
 
 
-def test_calibration_population_can_be_limited_to_price_eligible_candidates() -> None:
+def test_calibration_population_uses_all_live_values_before_price_filtering() -> None:
     aa_rows = [
         {"slug": "example/expensive", "evaluations": {"artificial_analysis_intelligence_index": 100}},
         {"slug": "example/model-a", "evaluations": {"artificial_analysis_intelligence_index": 20}},
         {"slug": "example/model-b", "evaluations": {"artificial_analysis_intelligence_index": 80}},
     ]
 
-    populations, sources = builder.calibration_populations(
-        aa_rows,
-        [],
-        eligible_ids={"example/model-a", "example/model-b"},
-    )
+    populations, sources = builder.calibration_populations(aa_rows, [])
 
-    assert populations == {"intelligence": (20.0, 80.0)}
+    assert populations == {"intelligence": (20.0, 80.0, 100.0)}
     assert sources == {"intelligence": "artificial-analysis-data-api"}
 
 

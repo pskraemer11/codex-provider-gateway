@@ -40,7 +40,7 @@ OR_MODELS_URL = "https://openrouter.ai/api/v1/models"
 OR_BENCHMARKS_URL = "https://openrouter.ai/api/v1/benchmarks"
 GO_DOC_URL = "https://opencode.ai/v2/docs/console/go"
 ZEN_DOC_URL = "https://opencode.ai/v2/docs/console/models"
-PROXY_MODELS_URL = "http://127.0.0.1:8787/v1/models"
+CODEX_TEMPLATE_TIMEOUT_SEC = 60
 TASK_TYPES = {"intelligence": "intelligence_index", "coding": "coding_index", "agentic": "agentic_index"}
 USD_PER_MILLION = Decimal("1000000")
 SCORE_LIMIT = MIN_CALIBRATED_SCORE
@@ -76,6 +76,15 @@ REMOVE_KEYS = (
 
 class CatalogError(RuntimeError):
     """A required source did not satisfy its data contract."""
+
+
+def default_proxy_models_url() -> str:
+    """Loopback proxy catalog URL, following the proxy's port environment."""
+    explicit = os.environ.get("OPENCODE_GO_PROXY_MODELS_URL")
+    if explicit:
+        return explicit.rstrip("/")
+    port = os.environ.get("OPENCODE_GO_PROXY_PORT", "8787")
+    return f"http://127.0.0.1:{port}/v1/models"
 
 
 def _now() -> str:
@@ -554,14 +563,13 @@ def calibration_populations(
     aa_rows: list[dict[str, Any]],
     snapshot_rows: list[dict[str, Any]],
     or_metrics: dict[str, dict[str, float]] | None = None,
-    eligible_ids: set[str] | None = None,
 ) -> tuple[dict[str, tuple[float, ...]], dict[str, str]]:
-    """Kalibriert ausschließlich den AA-Intelligence-Index.
+    """Kalibriert den AA-Intelligence-Index vor der Preisfilterung.
 
-    Der optionale ``or_metrics``-Parameter bleibt für ältere Aufrufer
-    akzeptiert, beeinflusst die Auswahl aber absichtlich nicht. Wenn
-    ``eligible_ids`` gesetzt ist, wird die Skala aus den eindeutigen AA-
-    Intelligence-Werten der preisbereinigten Kandidaten gebildet.
+    Die Skala verwendet alle verwendbaren Intelligence-Werte der gewählten
+    AA-Population. Preisfilter und Score-Schwelle werden erst danach
+    angewendet. Der optionale ``or_metrics``-Parameter bleibt für ältere
+    Aufrufer akzeptiert, beeinflusst die Auswahl aber absichtlich nicht.
     """
     del or_metrics
     live_population = _usable_calibration_population([_index_values(row).get("intelligence") for row in aa_rows])
@@ -574,21 +582,7 @@ def calibration_populations(
     if live_population is None:
         return {}, {}
 
-    if eligible_ids is None:
-        return {"intelligence": live_population}, {"intelligence": source}
-
-    rows = aa_rows if source == "artificial-analysis-data-api" else snapshot_rows
-    slugs = [str(row["slug"]) for row in rows if isinstance(row.get("slug"), str)]
-    by_slug = {str(row["slug"]): row for row in rows if isinstance(row.get("slug"), str)}
-    eligible_values = [
-        _index_values(by_slug[match]).get("intelligence")
-        for target_id in sorted(eligible_ids)
-        if (match := unique_model_component(target_id, slugs)) is not None
-    ]
-    candidate_population = _usable_calibration_population(eligible_values)
-    if candidate_population is not None:
-        return {"intelligence": candidate_population}, {"intelligence": source}
-    return {}, {}
+    return {"intelligence": live_population}, {"intelligence": source}
 
 
 def usable_live_indices(primary_values: dict[str, float], population_sources: dict[str, str]) -> dict[str, float]:
@@ -614,12 +608,15 @@ def _proxy_state_dir(codex_dir: Path) -> Path:
     return Path(override).expanduser() if override else codex_dir / "opencode-go-proxy"
 
 
-def fetch_proxy_catalog(codex_dir: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def fetch_proxy_catalog(
+    codex_dir: Path, proxy_models_url: str | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    proxy_models_url = proxy_models_url or default_proxy_models_url()
     live_hash: str | None = None
     live_ids: set[str] | None = None
     live_error: str | None = None
     try:
-        payload, live_hash = _get_json(PROXY_MODELS_URL)
+        payload, live_hash = _get_json(proxy_models_url)
         data = payload.get("data")
         if not isinstance(data, list):
             raise CatalogError("/v1/models lieferte keine data-Liste.")
@@ -650,7 +647,7 @@ def fetch_proxy_catalog(codex_dir: Path) -> tuple[list[dict[str, Any]], dict[str
     if live_ids is not None and cached_routes != routed_ids:
         raise CatalogError("Lokaler Proxy: Live-Routen und Codex-Katalog weichen ab; Katalog aktualisieren.")
     return entries, {
-        "url": PROXY_MODELS_URL,
+        "url": proxy_models_url,
         "retrieved_at": _now(),
         "live_sha256": live_hash,
         "live_verified": live_ids is not None,
@@ -846,14 +843,80 @@ def _make_entry(
     return entry
 
 
+def _template_models(payload: Any) -> list[dict[str, Any]]:
+    models = payload.get("models") if isinstance(payload, dict) else payload
+    if not isinstance(models, list) or not models:
+        raise CatalogError("Codex-Native-Katalog enthaelt keine Modelle als Template.")
+    templates = [model for model in models if isinstance(model, dict)]
+    if not templates:
+        raise CatalogError("Codex-Native-Katalog enthaelt keine Modellobjekte als Template.")
+    return templates
+
+
+def load_native_catalog_template(
+    template_path: Path | None,
+    *,
+    codex_dir: Path,
+    codex_bin: str = "codex",
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Load a full Codex model as template, falling back to `codex debug models`."""
+    default_path = codex_dir / ".tmp" / "bundled-catalog.json"
+    selected_path = template_path or default_path
+    if selected_path.exists():
+        try:
+            raw = selected_path.read_bytes()
+            payload = json.loads(raw)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise CatalogError(f"Codex-Native-Katalog nicht lesbar: {selected_path}") from error
+        templates = _template_models(payload)
+        return templates, {
+            "source": "file",
+            "path": str(selected_path),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
+    if template_path is not None:
+        raise CatalogError(f"Codex-Native-Katalog nicht lesbar: {selected_path}")
+
+    try:
+        result = subprocess.run(
+            [codex_bin, "debug", "models"],
+            capture_output=True,
+            text=True,
+            timeout=CODEX_TEMPLATE_TIMEOUT_SEC,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise CatalogError(
+            "Codex-Native-Katalog fehlt; --template angeben oder Codex CLI installieren"
+        ) from error
+    if result.returncode != 0:
+        detail = " | ".join(line.strip() for line in (result.stderr or "").splitlines()[:3] if line.strip())
+        raise CatalogError(
+            f"{codex_bin} debug models exited {result.returncode}"
+            + (f": {detail}" if detail else "")
+        )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise CatalogError("codex debug models lieferte kein gueltiges JSON.") from error
+    templates = _template_models(payload)
+    return templates, {
+        "source": "codex-debug-models",
+        "command": [codex_bin, "debug", "models"],
+        "stdout_sha256": hashlib.sha256(result.stdout.encode("utf-8")).hexdigest(),
+    }
+
+
 def build_catalog_data(
     *,
     display_overrides: dict[str, str] | None,
-    template_path: Path,
+    template_path: Path | None,
     codex_dir: Path,
     aa_snapshot_path: Path | None = None,
     input_price_limit: Decimal = INPUT_PRICE_LIMIT,
     min_calibrated_score: float = MIN_CALIBRATED_SCORE,
+    proxy_models_url: str | None = None,
+    codex_bin: str = "codex",
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     aa_key = os.environ.get("ARTIFICIAL_ANALYSIS_API_KEY")
     if not aa_key:
@@ -869,7 +932,7 @@ def build_catalog_data(
         "status": "disabled",
         "reason": "OpenRouter Coding/Agentic fallback is not used by the picker",
     }
-    proxy_entries, proxy_source = fetch_proxy_catalog(codex_dir)
+    proxy_entries, proxy_source = fetch_proxy_catalog(codex_dir, proxy_models_url)
 
     go_html = _get_bytes(GO_DOC_URL)
     zen_html = _get_bytes(ZEN_DOC_URL)
@@ -887,13 +950,9 @@ def build_catalog_data(
     }
     zen_source = {"url": ZEN_DOC_URL, "retrieved_at": _now(), "sha256": hashlib.sha256(zen_html).hexdigest()}
 
-    try:
-        native_catalog = json.loads(template_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise CatalogError(f"Codex-Native-Katalog nicht lesbar: {template_path}") from error
-    templates = native_catalog.get("models") if isinstance(native_catalog, dict) else None
-    if not isinstance(templates, list) or not templates:
-        raise CatalogError("Codex-Native-Katalog enthaelt keine Modelle als Template.")
+    templates, native_template_source = load_native_catalog_template(
+        template_path, codex_dir=codex_dir, codex_bin=codex_bin
+    )
     template = min(templates, key=lambda model: len(json.dumps(model, ensure_ascii=False)))
 
     diagnostics = {
@@ -943,26 +1002,7 @@ def build_catalog_data(
         if model_id:
             zen_prices.setdefault(model_id, []).append(tier)
 
-    eligible_ids: set[str] = {
-        identifier
-        for model in or_rows
-        if (identifier := str(model["id"]))
-        and (price := _price_per_million(model)) is not None
-        and price < input_price_limit
-    }
-    eligible_ids.update(
-        f"opencode-go/{route_id}"
-        for route_id in go_ids
-        if go_prices.get(route_id) and max(tier.input_price for tier in go_prices[route_id]) < input_price_limit
-    )
-    eligible_ids.update(
-        f"zen/{route_id}"
-        for route_id in zen_ids
-        if zen_prices.get(route_id) and max(tier.input_price for tier in zen_prices[route_id]) < input_price_limit
-    )
-    ranges, range_sources = calibration_populations(
-        aa_rows, aa_snapshot_rows, eligible_ids=eligible_ids
-    )
+    ranges, range_sources = calibration_populations(aa_rows, aa_snapshot_rows)
     if not ranges:
         raise CatalogError("Artificial Analysis: keine verwendbare Intelligence-Index-Population vorhanden.")
 
@@ -1200,6 +1240,7 @@ def build_catalog_data(
         "criteria": {
             "input_price_usd_per_million_strictly_less_than": str(input_price_limit),
             "calibrated_score_strictly_greater_than": min_calibrated_score,
+            "calibration_population": "all usable AA Intelligence values before provider price filtering",
             "preferred_default_model_if_selected": PREFERRED_MODEL_IDS,
             "explicit_free_exceptions": {
                 provider: sorted(model_ids) for provider, model_ids in PINNED_FREE_MODELS.items()
@@ -1208,7 +1249,7 @@ def build_catalog_data(
                 "Explicit user-pinned routes are included only at verified $0 input price; "
                 "missing benchmark scores stay unverified and rank below scored models."
             ),
-            "calibration": "AA Intelligence Index as a Min-Max scale over the price-eligible candidate population (minimum=0, maximum=100, clamping outside the observed range); populations with fewer than two values or all-zero values are unusable",
+            "calibration": "AA Intelligence Index as a Min-Max scale over all usable values in the selected AA population before provider price filtering (minimum=0, maximum=100, clamping outside the observed range); populations with fewer than two values or all-zero values are unusable",
             "score_policy": (
                 "Only calibrated AA Intelligence Index is selectable. Use the live AA population; "
                 "use the dated AA snapshot only when the live Intelligence population is absent or all zero. "
@@ -1221,6 +1262,7 @@ def build_catalog_data(
             "openrouter_models": or_source,
             "openrouter_benchmarks": or_benchmark_source,
             "opencode_proxy": proxy_source,
+            "native_template": native_template_source,
             "opencode_go_prices": go_source,
             "opencode_console_prices": zen_source,
         },
@@ -1319,7 +1361,7 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
         type=_parse_min_calibrated_score,
         default=MIN_CALIBRATED_SCORE,
         metavar="SCORE",
-        help="exklusive Mindestschwelle fuer den skalierten AA Intelligence Index, Bereich 0..100 (Standard: 70)",
+        help="exklusive Mindestschwelle fuer den skalierten AA Intelligence Index, Bereich 0..100 (Standard: 50)",
     )
     parser.add_argument(
         "--aa-snapshot",
@@ -1329,11 +1371,28 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
     )
     parser.add_argument("--out-dir", type=Path, default=codex_dir, help="Zielordner (Standard: CODEX_HOME)")
     parser.add_argument("--out", type=Path, help="Exakter Ausgabepfad, nur fuer einen Provider")
-    parser.add_argument("--check", action="store_true", help="Quellen pruefen und Auswahl anzeigen, nichts schreiben")
+    parser.add_argument("--check", action="store_true", help="Quellen live pruefen und Auswahl anzeigen, nichts schreiben")
+    parser.add_argument(
+        "--template",
+        type=Path,
+        help="Codex-Native-Katalog als Template; Standard: CODEX_HOME/.tmp/bundled-catalog.json, sonst codex debug models",
+    )
+    parser.add_argument(
+        "--proxy-url",
+        default=default_proxy_models_url(),
+        help="Modellkatalog des lokalen Proxys (Standard: OPENCODE_GO_PROXY_MODELS_URL oder Port aus OPENCODE_GO_PROXY_PORT)",
+    )
+    parser.add_argument(
+        "--codex-bin",
+        default=os.environ.get("OPENCODE_GO_PROXY_CODEX_BIN", "codex"),
+        help="Codex-CLI fuer den Template-Fallback (Standard: OPENCODE_GO_PROXY_CODEX_BIN oder codex)",
+    )
     parser.add_argument("--no-backup", action="store_true", help="Vorhandene Ausgaben nicht sichern")
     parser.add_argument("--no-verify", action="store_true", help="codex debug models nach dem Schreiben ueberspringen")
     parser.add_argument(
-        "--allow-cached-proxy", action="store_true", help="schreibt trotz nicht live verifiziertem Proxy-Katalog"
+        "--allow-cached-proxy",
+        action="store_true",
+        help="erlaubt Pruefen oder Schreiben mit dem zuletzt gespeicherten Proxy-Katalog",
     )
     args = parser.parse_args()
     if args.out and args.provider == "all":
@@ -1342,11 +1401,13 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
     try:
         catalogs, audit = build_catalog_data(
             display_overrides=display_overrides,
-            template_path=codex_dir / ".tmp" / "bundled-catalog.json",
+            template_path=args.template,
             codex_dir=codex_dir,
             aa_snapshot_path=args.aa_snapshot,
             input_price_limit=args.input_price_limit,
             min_calibrated_score=args.min_calibrated_score,
+            proxy_models_url=args.proxy_url,
+            codex_bin=args.codex_bin,
         )
     except CatalogError as error:
         print(f"Katalogbau abgebrochen: {error}")
@@ -1429,6 +1490,9 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
             print("  Angeheftete Free-Ausnahmen:")
             for item in free_exceptions:
                 print(f"    {item['provider']}: {item['id']} (Benchmark unverified)")
+        if not audit["sources"]["opencode_proxy"].get("live_verified") and not args.allow_cached_proxy:
+            print("Abbruch: Live-Pruefung verlangt einen erreichbaren Proxy oder --allow-cached-proxy.")
+            return 1
         return 0
 
     out_dir = args.out_dir.expanduser().resolve()

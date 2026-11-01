@@ -274,6 +274,8 @@ def _block_bounds(contents: str) -> tuple[int, int] | None:
     ends = [i for i, line in enumerate(lines) if line.strip() == END_MARKER]
     if len(starts) > 1:
         raise ConfigError(f"config.toml has {len(starts)} '{START_MARKER}' blocks; refusing to guess")
+    if len(ends) > 1:
+        raise ConfigError(f"config.toml has {len(ends)} '{END_MARKER}' markers; refusing to guess")
     if not starts:
         if ends:
             raise ConfigError(f"config.toml has a stray '{END_MARKER}' without its opening marker; refusing to guess")

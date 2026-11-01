@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 INDEX_NAMES = ("intelligence", "coding", "agentic")
-MIN_CALIBRATED_SCORE = 70.0
+MIN_CALIBRATED_SCORE = 50.0
 INPUT_PRICE_LIMIT = Decimal("0.25")
 
 

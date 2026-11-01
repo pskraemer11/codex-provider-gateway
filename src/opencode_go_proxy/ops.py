@@ -221,9 +221,12 @@ def _port_occupied(url: str = HEALTH_URL) -> bool:
 
 
 def check_service(url: str = HEALTH_URL) -> Check:
-    """The local proxy's /health endpoint answers 200."""
+    """The local proxy's /health endpoint answers 200 with status=ok."""
     try:
         with urllib.request.urlopen(url, timeout=3) as resp:
+            payload = json.load(resp)
+            if not isinstance(payload, dict) or payload.get("status") != "ok":
+                return Check("service", "fail", f"health payload is not ok on {url}")
             return Check("service", "ok", f"health {resp.status} on {url}")
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return Check("service", "fail", f"not reachable on {url}: {exc}", fix="Start the proxy from the menu bar app, then rerun doctor.")

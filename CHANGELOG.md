@@ -4,6 +4,26 @@
 
 ### Fixed
 
+- `/v1/chat/completions` now rejects Zen Claude, Gemini, and GPT/Grok models
+  before any upstream call when their protocol family is not Chat Completions.
+- The catalog picker no longer depends on an undocumented bundled catalog:
+  it accepts `--template`, uses the Codex temporary catalog when available,
+  and otherwise obtains a template from `codex debug models`.
+- Picker proxy discovery is configurable with `--proxy-url` and follows
+  `OPENCODE_GO_PROXY_PORT`. `--check` now fails unless the proxy is live or
+  `--allow-cached-proxy` is explicit.
+- The Windows provider switcher validates the target provider table and
+  replaces `config.toml` atomically. The watchdog prefers the persistently
+  installed proxy command, and the installer places its script in local
+  app-data for checkout-independent autostart.
+- Health checks accept only a JSON payload with `status: "ok"`, and malformed
+  config files with multiple managed END markers are rejected unchanged.
+- The runtime-refresh test now resolves checked-in `contrib/` files from the
+  repository rather than the process working directory, so the suite is
+  independent of where pytest is started.
+- The picker README now documents the real catalog location, current API
+  credentials, template fallback, live-check behavior, and persistent watchdog
+  startup.
 - The Codex Picker defines the strict `$0.25/M` input-price cap once and uses
   it for filtering, audit/CSV validation, and displayed criteria. Methodology
   records its history from `$0.50/M` and the one model excluded when the cap
@@ -19,7 +39,8 @@
   and falls back only to a valid dated AA snapshot. Selection now uses the
   calibrated AA Intelligence Index exclusively; the 60/40 Coding/Agentic
   composite and OpenRouter Coding fallback are not used. Intelligence values
-  are Min-Max calibrated over price-eligible candidates, and
+  are Min-Max calibrated over all usable values in the selected AA population
+  before provider prices are applied, and
   spreadsheet-formula-like CSV cells are escaped.
 - `opencode-go-proxy smoke-test` selects a currently advertised `opencode-go/`
   model when no model is supplied, instead of failing against a stale default
@@ -27,6 +48,8 @@
 
 ### Added
 
+- CI now includes a Windows job that parses every Picker PowerShell script and
+  exercises provider switching and watchdog startup with temporary fixtures.
 - Windows proxy lifecycle scripts now live in `tools/codex-picker/`: a logon
   autostart and periodic health-watchdog installer, plus a provider switcher
   that waits for `/health`. All three expose PowerShell comment-based help via
@@ -34,7 +57,7 @@
   an explicit user action and is not run by this change.
 - The provider-catalog builder accepts CLI overrides for the strict input-price
   ceiling and minimum scaled AA Intelligence Index score; defaults remain
-  `$0.25/M` and a strict score `> 70`.
+  `$0.25/M` and a strict score `> 50`.
 - Local test gate under `.githooks/`, activated per clone with
   `git config core.hooksPath .githooks`. `pre-commit` runs Ruff and the full
   suite when a staged path starts with `src/`, `tests/`, `contrib/` or
@@ -48,7 +71,7 @@
   its workflow ignores local branches.
 - Shared Codex catalog builder under `tools/codex-picker/` for OpenRouter,
   OpenCode Go, Zen, and the combined proxy. The ordinary filter is input price
-  `< $0.25/M` and calibrated AA Intelligence score `>70`; the five explicitly pinned free routes
+  `< $0.25/M` and calibrated AA Intelligence score `>50`; the five explicitly pinned free routes
   require verified `$0` input price and remain `unverified` when benchmark data
   is missing. DeepSeek V4.1 Flash 1017 is preferred only when it qualifies.
 - `tools/codex-picker/METHODOLOGY.md` documents the calibration and score
@@ -69,6 +92,12 @@
   profile and table values are left untouched.
 
 ### Changed
+
+- Picker calibration now uses the complete usable live AA Intelligence
+  population before price filtering, and the default normalized quality
+  threshold is `> 50/100`. This prevents the 0–100 scale from being redefined
+  by the current set of cheap candidates. The dated AA snapshot follows the
+  same rule when used as a fallback.
 
 - Reject unknown or malformed model IDs before routing instead of silently
   substituting `deepseek-v4-flash`.

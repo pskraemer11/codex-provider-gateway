@@ -11,6 +11,7 @@ import socket
 import threading
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest import mock
 
 from opencode_go_proxy import catalog, protocol
@@ -220,17 +221,18 @@ class TestRenderRuntimeCatalog:
 
 class TestRuntimeRefresh:
     def test_refresh_writes_only_under_state_dir(self) -> None:
-        with open("contrib/opencode-go-models.json") as fh:
+        repo_root = Path(__file__).resolve().parents[1]
+        with open(repo_root / "contrib/opencode-go-models.json") as fh:
             contrib_models = fh.read()
-        with open("contrib/opencode-go-catalog.json") as fh:
+        with open(repo_root / "contrib/opencode-go-catalog.json") as fh:
             contrib_catalog = fh.read()
 
         with mock.patch("opencode_go_proxy.catalog.discover_models", return_value=([], None)):
             catalog.refresh_runtime_catalog()
 
-        with open("contrib/opencode-go-models.json") as fh:
+        with open(repo_root / "contrib/opencode-go-models.json") as fh:
             assert fh.read() == contrib_models
-        with open("contrib/opencode-go-catalog.json") as fh:
+        with open(repo_root / "contrib/opencode-go-catalog.json") as fh:
             assert fh.read() == contrib_catalog
         state = os.environ["OPENCODE_GO_PROXY_STATE_DIR"]
         assert os.path.exists(os.path.join(state, "opencode-go-models.json"))

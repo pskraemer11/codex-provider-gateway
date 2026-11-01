@@ -40,8 +40,18 @@ jobs:
           name: wheel
           path: dist/*.whl
 
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse and smoke-test PowerShell scripts
+        shell: pwsh
+        run: ./tools/codex-picker/tests/powershell-scripts.Tests.ps1
+
   release:
-    needs: test
+    needs: [test, powershell]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

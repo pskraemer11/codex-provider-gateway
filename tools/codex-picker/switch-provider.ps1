@@ -303,6 +303,38 @@ function ConvertTo-TomlBasicString {
     return ConvertTo-Json -InputObject $Value -Compress
 }
 
+function Test-ProviderTable {
+    param([string]$Text, [string]$Name)
+
+    $escaped = [regex]::Escape($Name)
+    $patterns = @(
+        "^[ \t]*\[model_providers\.$escaped\][ \t]*(?:#.*)?$",
+        "^[ \t]*\[model_providers\.`"$escaped`"\][ \t]*(?:#.*)?$",
+        "^[ \t]*\[model_providers\.'$escaped'\][ \t]*(?:#.*)?$"
+    )
+    return $patterns | Where-Object { [regex]::IsMatch($Text, $_, [System.Text.RegularExpressions.RegexOptions]::Multiline) } |
+        Select-Object -First 1
+}
+
+function Write-TextAtomically {
+    param([string]$Path, [string]$Contents)
+
+    $directory = [System.IO.Path]::GetDirectoryName($Path)
+    $temporary = Join-Path $directory (".{0}.{1}.tmp" -f ([System.IO.Path]::GetFileName($Path)), [guid]::NewGuid().ToString("N"))
+    try {
+        [System.IO.File]::WriteAllText($temporary, $Contents, [System.Text.UTF8Encoding]::new($false))
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+            throw "Codex config disappeared before the atomic replacement: $Path"
+        }
+        [System.IO.File]::Move($temporary, $Path, $true)
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporary -PathType Leaf) {
+            Remove-Item -LiteralPath $temporary -Force
+        }
+    }
+}
+
 function Set-RootTomlStringValue {
     param([string]$Text, [string]$Key, [string]$Value)
 
@@ -374,6 +406,11 @@ if ([string]::IsNullOrWhiteSpace($Target)) {
     Write-Host "Switching automatically: $active -> $Target"
 }
 
+$wanted = $variants[$Target]
+if (-not (Test-ProviderTable -Text $raw -Name $wanted.model_provider)) {
+    throw "Target provider table [model_providers.$($wanted.model_provider)] is missing. Add the documented provider configuration first."
+}
+
 if ($Target -eq "proxy") {
     $watchdogPath = Join-Path $PSScriptRoot "watchdog-proxy.ps1"
     if (-not (Test-Path -LiteralPath $watchdogPath -PathType Leaf)) {
@@ -391,7 +428,6 @@ if ($Target -eq "proxy") {
     Write-Host "Proxy /health is ready on port $Port."
 }
 
-$wanted = $variants[$Target]
 $wanted.model = Get-CatalogDefaultModel $wanted.model_catalog_json $wanted.model
 $updated = $raw
 foreach ($key in $wanted.Keys) {
@@ -411,12 +447,15 @@ if ($ConfigPath -eq $defaultConfigPath -and $running -and -not $Restart) {
     return
 }
 
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
 $backupDirectory = Join-Path ([System.IO.Path]::GetDirectoryName($ConfigPath)) "backups"
 New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
 $backupPath = Join-Path $backupDirectory "config.toml.backup-$stamp-before-switch-$Target"
+if (Test-Path -LiteralPath $backupPath) {
+    $backupPath = Join-Path $backupDirectory "config.toml.backup-$stamp-$([guid]::NewGuid().ToString('N'))-before-switch-$Target"
+}
 Copy-Item -LiteralPath $ConfigPath -Destination $backupPath
-[System.IO.File]::WriteAllText($ConfigPath, $updated, [System.Text.UTF8Encoding]::new($false))
+Write-TextAtomically -Path $ConfigPath -Contents $updated
 
 Write-Host "Switched to: $Target"
 Write-Host "Backup: $backupPath"

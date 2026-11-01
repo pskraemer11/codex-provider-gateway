@@ -1872,6 +1872,18 @@ def handle_zen_chat_request(handler: Any, payload: Json, config: ProxyConfig, re
     model = payload.get("model") or DEFAULT_MODEL
     ensure_zen_slug(model)
     bare_id = bare_zen_id(model)
+    family = zen_family_for(bare_id)
+    if family != "openai_chat":
+        expected = {
+            "anthropic_messages": "/v1/responses or the Anthropic Messages surface",
+            "google_gemini": "/v1/responses or the Gemini API surface",
+            "openai_responses": "/v1/responses",
+        }[family]
+        raise ProxyError(
+            HTTPStatus.BAD_REQUEST,
+            f"Zen model {model!r} uses {expected}, not /chat/completions",
+            error_type="invalid_request_error",
+        )
     api_key = resolve_api_key(config, request_id)
     body = dict(payload)
     body["model"] = bare_id

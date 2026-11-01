@@ -652,6 +652,29 @@ class TestStreamErrorHandling:
 
 
 class TestZenChatSurface:
+    @pytest.mark.parametrize(
+        ("slug", "expected"),
+        [
+            ("zen/claude-sonnet-4", "Anthropic Messages"),
+            ("zen/gemini-3-pro", "Gemini API"),
+            ("zen/gpt-5.6", "/v1/responses"),
+        ],
+    )
+    def test_rejects_non_chat_family_before_upstream(
+        self, monkeypatch: pytest.MonkeyPatch, slug: str, expected: str
+    ) -> None:
+        _fake_key(monkeypatch)
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            with pytest.raises(ProxyError, match=expected) as error:
+                zen_upstream.handle_zen_chat_request(
+                    _FakeHandler(),
+                    {"model": slug, "messages": [{"role": "user", "content": "hi"}]},
+                    make_config(),
+                    "req",
+                )
+        assert error.value.status == HTTPStatus.BAD_REQUEST
+        urlopen.assert_not_called()
+
     def test_stream_relay_to_zen_base(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _fake_key(monkeypatch)
         lines = [

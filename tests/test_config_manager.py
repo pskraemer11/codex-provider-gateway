@@ -163,6 +163,17 @@ class TestEnable:
             config_manager.enable()
         assert _read(cfg_path) == before
 
+    def test_refuses_multiple_end_markers(self, cfg_path) -> None:
+        malformed = (
+            f"{config_manager.START_MARKER}\n# x\n{config_manager.END_MARKER}\n"
+            f"{config_manager.END_MARKER}\n"
+        )
+        with open(cfg_path, "w", encoding="utf-8") as handle:
+            handle.write(malformed)
+        with pytest.raises(config_manager.ConfigError, match="END_MARKER|markers"):
+            config_manager.enable()
+        assert _read(cfg_path) == malformed
+
     def test_leaves_foreign_managed_blocks_alone(self, cfg_path) -> None:
         foreign = "# BEGIN codex-router-managed\nopenai_base_url = \"http://127.0.0.1:1234/v1\"\n# END codex-router-managed\n"
         with open(cfg_path, "w", encoding="utf-8") as handle:

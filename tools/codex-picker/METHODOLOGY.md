@@ -14,6 +14,14 @@ policy is strictly below `$0.25/M`; a model priced at exactly `$0.25/M` does
 not qualify. `catalog_rules.INPUT_PRICE_LIMIT` is the single source used by
 selection, audit reporting, CSV validation, and the builder's printed criteria.
 
+The initial quality threshold was `> 70/100` on a scale calibrated only over
+price-eligible candidates. That scale moved whenever the cheap candidate set
+changed. The current policy calibrates first over the complete usable AA
+Intelligence population and applies provider price and quality filters
+afterwards. The threshold is `> 50/100`; `catalog_rules.MIN_CALIBRATED_SCORE`
+is the single source used by selection, CLI defaults, audit reporting, and the
+builder's printed criteria.
+
 ## Price evidence
 
 - OpenRouter: prompt/input price from `/api/v1/models`, multiplied by one million.
@@ -30,18 +38,25 @@ per-task costs.
 Raw AA values are associated only by exact model ID or a unique, canonicalized
 model-ID component. Ambiguous or missing matches remain unverified.
 
-The AA Intelligence Index is calibrated to a 0–100 Min-Max scale over the
-price-eligible candidate population: the observed minimum maps to 0 and the
-observed maximum to 100. Values outside that range clamp to 0 or 100. A
-population with fewer than two values is unverified, and a population in which
-every value is zero is treated as suspicious rather than scored. A model's
-individual live value is ignored when the live Intelligence population is
-rejected. Equal values therefore receive the same calibrated score. The source
-population order is:
+The AA Intelligence Index is calibrated to a 0–100 Min-Max scale over all
+usable values in the selected AA population before provider prices are applied:
+the observed minimum maps to 0 and the observed maximum to 100. Values outside
+that range clamp to 0 or 100. A population with fewer than two values is
+unverified, and a population in which every value is zero is treated as
+suspicious rather than scored. A model's individual live value is ignored when
+the live Intelligence population is rejected. Equal values therefore receive
+the same calibrated score. The source population order is:
 
 1. Live Artificial Analysis Data API Intelligence values.
 2. The dated local AA snapshot, at most 31 days old, when the live Intelligence
    population is absent or all zero.
+
+Absolute AA Intelligence values and calibrated scores are different units. An
+absolute 95th-percentile value such as `45.3` cannot be compared directly with
+a calibrated threshold such as `50/100`; the latter corresponds to a raw value
+derived from the observed minimum and maximum. Quantile statistics are useful
+for reviewing the distribution, but price and provider identity are applied
+only after the full-population calibration.
 
 The local snapshot used by this checkout is
 `artificial-analysis-free-snapshot-20261013.json`: 699 records, retrieved
@@ -49,7 +64,8 @@ The local snapshot used by this checkout is
 with AA API tier metadata `free`. That endpoint/tier identifies the AA data
 access source; it does not classify those records as provider models with
 zero token prices. This snapshot supplies only a fallback Intelligence-index
-calibration population. OpenRouter, Go, and Zen prices are still sourced from
+calibration population, using the same full-population rule as live AA.
+OpenRouter, Go, and Zen prices are still sourced from
 their respective provider catalogs/docs, and the explicitly pinned `$0` routes
 are handled separately. On this workstation, the builder's default ancestor
 lookup finds the JSON file in the sibling `automatisierter Benchmark-Abgleich`
@@ -67,7 +83,7 @@ source, identity match, and the raw index dictionaries used for each candidate.
 ## Selection and explicit exceptions
 
 A normal candidate is selected only when input price is strictly below
-`$0.25/M` and calibrated score is strictly greater than `70/100`. Missing
+`$0.25/M` and calibrated score is strictly greater than `50/100`. Missing
 benchmark values are never substituted with zero.
 
 Five explicitly requested free routes are the only score exceptions. They are
