@@ -48,6 +48,8 @@
 
 ### Added
 
+- Public issue forms for reproducible bug reports and focused feature requests,
+  with a template chooser that routes security reports to private advisories.
 - CI now includes a Windows job that parses every Picker PowerShell script and
   exercises provider switching and watchdog startup with temporary fixtures.
 - Windows proxy lifecycle scripts now live in `tools/codex-picker/`: a logon

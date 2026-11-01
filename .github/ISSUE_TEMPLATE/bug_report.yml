@@ -1,0 +1,117 @@
+name: Bug report
+description: Report a reproducible problem with the gateway, proxy, or catalog picker.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Remove API keys, access tokens, account
+        identifiers, and other sensitive values before submitting.
+
+        Do not use this form for security vulnerabilities. Report those through
+        the repository's private security advisory page.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues for the same problem.
+          required: true
+        - label: This report does not contain credentials or other sensitive data.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - OpenRouter direct provider
+        - OpenCode Go
+        - OpenCode Zen
+        - Local proxy
+        - Picker or catalog generation
+        - Codex configuration
+        - Installation or autostart
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: model-id
+    attributes:
+      label: Model ID
+      description: If applicable, include the exact provider-prefixed model ID.
+      placeholder: "Example: opencode-go/gpt-6-luna or zen/gpt-6-luna"
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem summary
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest sequence that reliably triggers the problem.
+      placeholder: |
+        1. Run ...
+        2. Select model ...
+        3. Send request ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Complete every item that applies.
+      value: |
+        - OS:
+        - Python version:
+        - Codex version (`codex --version`):
+        - Proxy version (`opencode-go-proxy --version`):
+        - Installation method:
+        - Provider and endpoint:
+        - Catalog/data-source date, if applicable:
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or trace output
+      description: Remove secrets and personal data first. Use placeholders such as [REDACTED_SECRET].
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add configuration excerpts, links, or other information that may help.
+    validations:
+      required: false

@@ -1,17 +1,18 @@
 # Codex Provider Gateway
 
-This repository is a fork of the Codex Provider Gateway at
-https://github.com/kartikkabadi/opencode-go-proxy. It combines two related but
-separate tools:
+This repository combines two related but separate tools:
 
 - `opencode-go-proxy` is a local, single-user Responses API adapter for Codex.
   It routes native Codex models, OpenCode Go models, and OpenCode Zen models.
+  This part is a fork of the Codex Provider Gateway at https://github.com/kartikkabadi/opencode-go-proxy.
 - `tools/codex-picker/` builds price- and benchmark-filtered Codex catalogs for
   direct OpenRouter routes, direct OpenCode Go/Zen routes, and the combined
-  local Go/Zen proxy.
+  local Go/Zen proxy. It does not construct the complete Pareto frontier line,
+  but selects a defined point on it which you can choose.
 
-OpenRouter is used directly by Codex. OpenCode Go and Zen can be used through
-the local proxy, which translates the wire protocol per model family.
+- The OpenRouter provider is used directly by Codex.
+- OpenCode Go and Zen can be used through the local proxy, which translates the
+  wire protocol per model family.
 
 ```text
 Codex

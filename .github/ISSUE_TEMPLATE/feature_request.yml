@@ -1,0 +1,60 @@
+name: Feature request
+description: Suggest a focused improvement to the gateway, proxy, or catalog picker.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the use case before the implementation. Do not include API keys,
+        access tokens, or other sensitive data.
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      options:
+        - OpenRouter direct provider
+        - OpenCode Go
+        - OpenCode Zen
+        - Local proxy
+        - Picker or catalog generation
+        - Codex configuration
+        - Installation or autostart
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and what prevents it today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional workarounds or alternative designs.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues for a similar request.
+          required: true
+        - label: This request contains no credentials or other sensitive data.
+          required: true
