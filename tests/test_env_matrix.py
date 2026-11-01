@@ -3,12 +3,12 @@ import os
 import urllib.error
 from unittest import mock
 
-import pytest
-
 from opencode_go_proxy import meter, secrets, upstream, vision
 from opencode_go_proxy.app import build_parser
 from opencode_go_proxy.config import ProxyConfig, resolve_chat_base_url
 from opencode_go_proxy.errors import ProxyError
+
+import pytest
 
 
 class TestEnvMatrix:

@@ -4,10 +4,9 @@ import json
 import os
 from unittest import mock
 
-from support import write_python_executable
-
 from opencode_go_proxy import catalog, native_models
 from opencode_go_proxy.meter import state_dir
+from support import write_python_executable
 
 NATIVE_FIXTURE = {
     "models": [

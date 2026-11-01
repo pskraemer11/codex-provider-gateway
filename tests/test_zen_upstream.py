@@ -17,13 +17,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
 from unittest import mock
 
-import pytest
-
 from opencode_go_proxy import zen_upstream
 from opencode_go_proxy.app import ProxyConfig
 from opencode_go_proxy.errors import ProxyError
 from opencode_go_proxy.meter import usage_events_path
 from opencode_go_proxy.secrets import clear_api_key_cache
+
+import pytest
 
 # Bare zen id -> family, mirroring the docs the catalog resolves from.
 FIXTURE_FAMILIES = {

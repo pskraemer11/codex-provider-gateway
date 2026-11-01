@@ -3,9 +3,8 @@ import os
 from pathlib import Path
 from unittest import mock
 
-from support import POSIX_PERMISSIONS
-
 from opencode_go_proxy import updates
+from support import POSIX_PERMISSIONS
 
 
 def test_update_cache_creates_parent_and_uses_private_permissions(

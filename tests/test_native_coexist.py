@@ -23,12 +23,12 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
-import pytest
-
 from opencode_go_proxy import passthrough
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.meter import state_dir
 from opencode_go_proxy.secrets import clear_api_key_cache
+
+import pytest
 
 CLIENT_AUTH = "Bearer CLIENT_FAKE_TOKEN"
 GO_FAKE_KEY = "sk-test-go-key-not-secret"

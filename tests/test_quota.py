@@ -11,8 +11,6 @@ from http.server import ThreadingHTTPServer
 from typing import ClassVar
 from unittest import mock
 
-import pytest
-
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.quota import (
     quota_snapshot_from_headers,
@@ -21,6 +19,8 @@ from opencode_go_proxy.quota import (
     record_quota_from_headers,
 )
 from opencode_go_proxy.upstream import call_upstream_chat, call_upstream_chat_verbatim
+
+import pytest
 
 
 def make_config() -> ProxyConfig:

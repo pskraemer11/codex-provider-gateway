@@ -1,6 +1,6 @@
-import pytest
-
 from opencode_go_proxy.updates import DEFAULT_TTL_SECONDS, TTL_HOURS_ENV, _ttl_seconds
+
+import pytest
 
 
 @pytest.mark.parametrize("value", ["nan", "inf", "1e309", "1e308"])

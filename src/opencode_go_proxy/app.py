@@ -336,7 +336,7 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("content-length", "0"))
         except ValueError:
-            raise ProxyError(HTTPStatus.BAD_REQUEST, "invalid content-length header")
+            raise ProxyError(HTTPStatus.BAD_REQUEST, "invalid content-length header") from None
         if length < 0:
             raise ProxyError(HTTPStatus.BAD_REQUEST, "negative content-length")
         if length > config.max_body_bytes:

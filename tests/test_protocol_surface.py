@@ -12,10 +12,10 @@ from http.server import ThreadingHTTPServer
 from typing import ClassVar
 from unittest import mock
 
-import pytest
+from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from support import isolated_env
 
-from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
+import pytest
 
 
 def make_config(port: int) -> ProxyConfig:

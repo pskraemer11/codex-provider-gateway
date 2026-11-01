@@ -169,7 +169,7 @@ def _fetch_zen_models(timeout: int = ZEN_FETCH_TIMEOUT_SEC) -> list[dict]:
         ZEN_MODELS_URL, headers={"User-Agent": f"opencode-go-proxy/{__version__}"}
     )
     last_error: Exception | None = None
-    for attempt in range(ZEN_FETCH_RETRIES + 1):
+    for _attempt in range(ZEN_FETCH_RETRIES + 1):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as resp:
                 payload = json.load(resp)

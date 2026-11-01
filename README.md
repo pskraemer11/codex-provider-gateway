@@ -1,6 +1,6 @@
-# OpenCode Go Proxy
+# Codex Provider Gateway
 
-[![CI](https://github.com/kartikkabadi/opencode-go-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/kartikkabadi/opencode-go-proxy/actions/workflows/ci.yml)
+[![CI](https://github.com/pskraemer11/opencode-go-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/pskraemer11/opencode-go-proxy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Dependencies: zstandard](https://img.shields.io/badge/dependencies-zstandard-blue.svg)](#)
@@ -8,6 +8,19 @@
 Use your own [OpenCode Go](https://opencode.ai/docs/go) and
 [OpenCode Zen](https://opencode.ai/zen) credentials in
 [Codex](https://github.com/openai/codex) through a local protocol adapter.
+
+This repository began as a fork of
+[kartikkabadi/opencode-go-proxy](https://github.com/kartikkabadi/opencode-go-proxy)
+and is maintained here as a separate Codex Provider Gateway, adding a quality-
+and price-based Codex picker for direct OpenRouter routes and proxy-based
+OpenCode Go/Zen models.
+
+The combined selection tool generates Codex catalogs filtered by price and benchmark for OpenRouter,
+OpenCode Go, OpenCode Zen, and the combined Go/Zen proxy.
+It selects a minimum quality and a maximum input price, resulting in a fixed point on the Pareto frontier.
+If you want a different point that is optimal for you, simply generate your own catalog.
+
+The compatible runtime command remains `opencode-go-proxy`.
 
 Codex expects a Responses API (`/v1/responses`). OpenCode Go's documented
 models span Responses, Chat Completions, and Anthropic Messages, while OpenCode
@@ -43,27 +56,30 @@ native OpenAI endpoint.
 Users are responsible for using their own accounts and following the current
 [OpenAI Terms of Use](https://openai.com/terms),
 [OpenAI Services Agreement](https://openai.com/policies/services-agreement/),
-OpenCode terms, and any model-provider policies that apply to them. See
-[Codex advanced configuration](https://developers.openai.com/codex/config-advanced)
+OpenCode terms, and any model-provider policies that apply to them.
+See [Codex advanced configuration](https://developers.openai.com/codex/config-advanced)
 and [SECURITY.md](SECURITY.md). This project documents technical safeguards;
 it does not provide legal or policy certification.
 
 ## Why
 
 OpenCode Go is a $10/month subscription for coding-agent access to a changing,
-provider-curated model set. Codex speaks the Responses API, while Go models
-currently require three different upstream protocols. This proxy provides that
-adapter without replacing Codex's native OpenAI authorization.
+provider-curated model set.
+OpenCode Zen adds additional models with pay-as-you-go per used tokens and interesting free models.
+OpenRouter.ai has a great variety of models for fair prices and a lot of additional features for routing.
+
+Codex speaks the Responses API, while Go models currently require three different upstream protocols.
+This proxy provides that adapter without replacing Codex's native OpenAI authorization.
 
 ## Quick start
 
 ```bash
 # Configure Codex (writes one marker-delimited block to ~/.codex/config.toml)
-uvx --from git+https://github.com/kartikkabadi/opencode-go-proxy \
+uvx --from git+https://github.com/pskraemer11/opencode-go-proxy \
   opencode-go-proxy config enable
 
 # Run the loopback-only adapter
-uvx --from git+https://github.com/kartikkabadi/opencode-go-proxy \
+uvx --from git+https://github.com/pskraemer11/opencode-go-proxy \
   opencode-go-proxy \
   --bind 127.0.0.1 \
   --port 8787
@@ -98,11 +114,14 @@ The checked-in catalog supports every model ID documented for OpenCode Go.
 Use the explicit `opencode-go/<model-id>` form in Codex; it avoids ambiguity
 when a Go model and a native OpenAI model have the same ID.
 
-| Upstream protocol | Documented model IDs |
-|-------------------|----------------------|
-| Responses `/responses` | `grok-4.6`, `gpt-5.6-luna`, `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` |
-| Chat Completions `/chat/completions` | `glm-5.3-flash`, `glm-5.3`, `glm-5.2`, `glm-5.1`, `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `longcat-2.0`, `deepseek-v4.1-flash`, `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `mimo-v2.5`, `mimo-v2.5-pro`, `hy4-preview`, `hy3` |
-| Anthropic Messages `/messages` | `minimax-m3`, `minimax-m2.7`, `minimax-m2.5`, `qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-plus` |
+| Upstream protocol         | Documented model IDs                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Responses `/responses`    | `grok-4.6` , `gpt-5.6-luna` , `muse-spark-1.3-contributor` , `muse-spark-1.2-contributor`                                                                                      |
+| Chat Completions          | `glm-5.3-flash` , `glm-5.3` , `glm-5.2` , `glm-5.1` , `kimi-k3` , `kimi-k2.7-code` , `kimi-k2.6` , `longcat-2.0` , `deepseek-v4.1-flash` , `deepseek-v4-pro` ,                 |
+|                           | `deepseek-v4-flash` ,                                                                                                                                                          |
+| `/chat/completions`       | `deepseek-v4-flash-vision-exp` , `mimo-v2.5` , `mimo-v2.5-pro` , `hy4-preview` , `hy3`                                                                                         |
+| Anthropic Messages        | `minimax-m3` , `minimax-m2.7` , `minimax-m2.5` , `qwen3.8-max` , `qwen3.8-flash` , `qwen3.7-max` , `qwen3.7-plus` , `qwen3.6-plus`                                             |
+| `/messages`               |                                                                                                                                                                                |
 
 The live `/models` response can change. Runtime refresh accepts only documented
 or protocol-certified IDs, so an unknown ID is not guessed into the wrong
@@ -114,11 +133,11 @@ offline.
 The one listener accepts all three documented client formats, with or without
 the `/v1` prefix:
 
-| Client request | Supported Go models | Upstream behavior |
-|----------------|---------------------|-------------------|
-| `POST /v1/responses` | all 28 documented models | translated to each model's certified Responses, Chat Completions, or Messages family |
-| `POST /v1/chat/completions` | the 16 Chat Completions models | relayed in Chat Completions format |
-| `POST /v1/messages` | the 8 Anthropic Messages models | relayed in Messages format |
+| Client request              | Supported Go models             | Upstream behavior                                                                    |
+| --------------------------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| `POST /v1/responses`        | all 28 documented models        | translated to each model's certified Responses, Chat Completions, or Messages family |
+| `POST /v1/chat/completions` | the 16 Chat Completions models  | relayed in Chat Completions format                                                   |
+| `POST /v1/messages`         | the 8 Anthropic Messages models | relayed in Messages format                                                           |
 
 Streaming and non-streaming requests are supported on every row. The Responses
 aliases `/responses/compact` and `/v1/responses/compact` are also available for
@@ -178,12 +197,12 @@ picker or run `codex -m zen/claude-sonnet-4-5`.
 Requests route by model family, translated from the Responses API the proxy always
 speaks to the surface the gateway expects:
 
-| Model ids | Upstream surface | Auth header |
-|-----------|------------------|-------------|
-| `claude-*`, `qwen*` | `/zen/v1/messages` (Anthropic Messages) | `x-api-key` |
-| `gemini-*` | `/zen/v1/models/<id>` (Gemini API) | `x-goog-api-key` |
-| `gpt-*`, `grok-*` | `/zen/v1/responses` (Responses API, verbatim) | `Authorization: Bearer` |
-| everything else | `/zen/v1/chat/completions` | `Authorization: Bearer` |
+| Model ids            | Upstream surface                              | Auth header             |
+| -------------------- | --------------------------------------------- | ----------------------- |
+| `claude-*` , `qwen*` | `/zen/v1/messages` (Anthropic Messages)       | `x-api-key`             |
+| `gemini-*`           | `/zen/v1/models/<id>` (Gemini API)            | `x-goog-api-key`        |
+| `gpt-*` , `grok-*`   | `/zen/v1/responses` (Responses API, verbatim) | `Authorization: Bearer` |
+| everything else      | `/zen/v1/chat/completions`                    | `Authorization: Bearer` |
 
 The proxy resolves the same key as Go — `$OPENCODE_GO_API_KEY` or the macOS keychain
 entry `opencode-go-api-key` — and maps the auth header per family. Zen turns meter
@@ -258,29 +277,36 @@ See the [lazycodex docs](https://github.com/code-yeongyu/oh-my-openagent) for se
 
 ## Features
 
-- OpenCode Zen support: auto-discovered `zen/<id>` catalog merged with models.dev metadata, per-family wire translation (Anthropic Messages / Gemini / Responses / chat-completions) with per-family auth header mapping, free models, and `provider="zen"` metering
+- OpenCode Zen support: auto-discovered `zen/<id>` catalog merged with models.dev metadata, per-family wire translation (Anthropic Messages /
+     Gemini / Responses / chat-completions) with per-family auth header mapping, free models, and `provider="zen"` metering
 - Responses `input` to chat `messages` translation
 - `instructions` and `developer` roles mapped to system messages
 - Function tool schema passthrough
 - Custom/freeform tool adaptation (Codex `apply_patch` works)
 - Reasoning content replay across tool-call turns
 - Real-time SSE streaming (not synthesized)
-- Cached image captioning when tools are present: cheapest catalog vision engine (or a probed local runtime) by default, `detail: low` input, 30s no-retry budget, MiMo V2.5 fallback, reads metered with `kind=vision`
+- Cached image captioning when tools are present: cheapest catalog vision engine (or a probed local runtime) by default, `detail: low` input, 30s no-retry budget,
+    MiMo V2.5 fallback, reads metered with `kind=vision`
 - SSRF protection on image URLs (`data:image/` and `https://` only)
 - Configurable body cap, peer-address guard, authenticated remote mode, keychain credential resolution
 - Local health and model-list endpoints
 - Prefix caching: byte-stable request prefixes plus `include_usage`, with per-model hit ratio on `/cache`
 - Honest usage meter: append-only `usage-events.jsonl` in the state dir (truncated or empty responses never count as success)
 - Upstream retry with bounded exponential backoff on transient failures (429/5xx/network/timeout)
-- Ops CLI: `doctor` (reference-style checks with `--fix` for safe repairs), `smoke-test` (marker prompt through the local proxy), `support-bundle` (JSON schema v1, mode 0600), `install` (points at the macOS menu bar app; no launchd agent), `install-skills`, `refresh-runtime`, and `status`
+- Ops CLI: `doctor` (reference-style checks with `--fix` for safe repairs), `smoke-test` (marker prompt through the local proxy), `support-bundle` (JSON schema v1, mode 0600),
+    `install` (points at the macOS menu bar app; no launchd agent), `install-skills`, `refresh-runtime`, and `status`
 - Spawned threads inherit the parent session's model (`create_thread`; `chatgptWorkCloud` targets are skipped)
-- Correctness contract: empty upstream completions are retried once (a second empty stream answers an `empty_completion` error), zero-input-token reports are estimated for compaction (`OPENCODE_GO_PROXY_ESTIMATE_ZERO_INPUT=0` disables), and keepalive comments run until the stream truly ends without interleaving into data frames
-- Auth transport guard (zero config): the default listener and accepted peers are loopback-only, forged `Host: localhost` does not admit a remote peer, browser-originated requests answer `403`, non-JSON POSTs answer `415`, and OPTIONS preflight stays blocked
+- Correctness contract: empty upstream completions are retried once (a second empty stream answers an `empty_completion` error), zero-input-token reports are estimated for compaction
+    (`OPENCODE_GO_PROXY_ESTIMATE_ZERO_INPUT=0` disables), and keepalive comments run until the stream truly ends without interleaving into data frames
+- Auth transport guard (zero config): the default listener and accepted peers are loopback-only, forged `Host: localhost` does not admit a remote peer,
+    browser-originated requests answer `403`, non-JSON POSTs answer `415`, and OPTIONS preflight stays blocked
 - Family-aware Go routing for Responses, Chat Completions, and Anthropic
   Messages, including streaming and non-streaming requests with the
   family-specific authentication header
-- Rate-limit harvesting (plan 011): upstream `x-ratelimit-*` and `anthropic-ratelimit-*` headers are parsed into per-provider quota snapshots, the latest snapshot per provider is kept, and `GET /quota` exposes `quota-state.json`
-- Menu bar state contract (plan 013): `GET /state` returns one JSON document (status, port, upstream, latest quota snapshot, today's turns/tokens, last-7-day token bars, current model) computed from the meter file and quota state
+- Rate-limit harvesting (plan 011): upstream `x-ratelimit-*` and `anthropic-ratelimit-*` headers are parsed into per-provider quota snapshots,
+    the latest snapshot per provider is kept, and `GET /quota` exposes `quota-state.json`
+- Menu bar state contract (plan 013): `GET /state` returns one JSON document (status, port, upstream, latest quota snapshot, today's turns/tokens,
+    last-7-day token bars, current model) computed from the meter file and quota state
 - WebSocket upgrade requests answered with `426 Upgrade Required` (desktop app falls back to HTTP streaming)
 - zstd-compressed request bodies decompressed (`Content-Encoding: zstd`; the desktop app sends them)
 - Single-port guard in the menu bar app: refuses Start when 8787 is already owned
@@ -432,7 +458,7 @@ always returns this shape.
 ### From source (no package manager)
 
 ```bash
-uvx --from git+https://github.com/kartikkabadi/opencode-go-proxy opencode-go-proxy --help
+uvx --from git+https://github.com/pskraemer11/opencode-go-proxy opencode-go-proxy --help
 ```
 
 ### From a development checkout
@@ -486,7 +512,7 @@ Install the checked-in user service, then start its single proxy process:
 ```bash
 mkdir -p ~/.config/systemd/user
 curl -fsSL \
-  https://raw.githubusercontent.com/kartikkabadi/opencode-go-proxy/v0.4.10/contrib/systemd/opencode-go-proxy.service \
+  https://raw.githubusercontent.com/pskraemer11/opencode-go-proxy/vX.Y.Z/contrib/systemd/opencode-go-proxy.service \
   -o ~/.config/systemd/user/opencode-go-proxy.service
 systemctl --user daemon-reload
 systemctl --user enable --now opencode-go-proxy
@@ -497,12 +523,13 @@ The unit owns the same one listener used on macOS; do not run a second manual
 proxy while it is active. For a foreground/manual Linux run, use:
 
 ```bash
-uvx --from git+https://github.com/kartikkabadi/opencode-go-proxy@v0.4.10 \
+uvx --from git+https://github.com/pskraemer11/opencode-go-proxy@vX.Y.Z \
   opencode-go-proxy --bind 127.0.0.1 --port 8787
 ```
 
-Replace `v0.4.10` with the newest tag from
-[releases](https://github.com/kartikkabadi/opencode-go-proxy/releases).
+Replace `vX.Y.Z` with the newest release tag from this repository's
+[releases](https://github.com/pskraemer11/opencode-go-proxy/releases). The
+fork's current branch may contain changes not yet present in a published tag.
 For updates, change the pinned `ExecStart` URL in
 `contrib/systemd/opencode-go-proxy.service` to the same pinned form, then
 `systemctl --user daemon-reload && systemctl --user restart opencode-go-proxy`.
@@ -514,14 +541,14 @@ frequently and each one is small.
 
 All flags have environment variable defaults:
 
-| Flag | Env var | Default |
-|------|---------|---------|
-| `--bind` | `OPENCODE_GO_PROXY_BIND` | `127.0.0.1` |
-| `--port` | `OPENCODE_GO_PROXY_PORT` | `8787` |
+| Flag              | Env var                                                                              | Default                         |
+| ----------------- | ------------------------------------------------------------------------------------ | ------------------------------- |
+| `--bind`          | `OPENCODE_GO_PROXY_BIND`                                                             | `127.0.0.1`                     |
+| `--port`          | `OPENCODE_GO_PROXY_PORT`                                                             | `8787`                          |
 | `--chat-base-url` | `OPENCODE_GO_BASE_URL` then `OPENCODE_ZEN_BASE_URL` then `CHAT_COMPLETIONS_BASE_URL` | `https://opencode.ai/zen/go/v1` |
-| `--api-key-env` | `OPENCODE_GO_PROXY_API_KEY_ENV` | `OPENCODE_GO_API_KEY` |
-| `--timeout-sec` | `OPENCODE_GO_PROXY_TIMEOUT_SEC` | `180` |
-| `--max-body-mb` | `OPENCODE_GO_PROXY_MAX_BODY_MB` | `20` |
+| `--api-key-env`   | `OPENCODE_GO_PROXY_API_KEY_ENV`                                                      | `OPENCODE_GO_API_KEY`           |
+| `--timeout-sec`   | `OPENCODE_GO_PROXY_TIMEOUT_SEC`                                                      | `180`                           |
+| `--max-body-mb`   | `OPENCODE_GO_PROXY_MAX_BODY_MB`                                                      | `20`                            |
 
 The proxy accepts both `/responses` and `/v1/responses`.
 
@@ -591,9 +618,12 @@ All commands run as subcommands of the console script, for example `opencode-go-
   content), and Codex Voice realtime keys are preserved on native endpoints
   unless you set them yourself. Point it at another file for testing with
   `OPENCODE_GO_PROXY_CONFIG_PATH`.
-- `smoke-test [--base-url URL]` - posts one marker prompt to the local proxy at
-  `http://127.0.0.1:8787/v1/responses` and asserts the marker comes back. Point
-  it at an isolated scratch proxy with `--base-url` or `OPENCODE_GO_PROXY_BASE_URL`.
+- `smoke-test [--base-url URL] [--model ID]` - posts one marker prompt to the local
+  proxy at `http://127.0.0.1:8787/v1/responses` and asserts the marker comes back.
+  By default it picks the first currently advertised `opencode-go/` model, so
+  filtered catalogs do not leave the test tied to a stale model ID. Use `--model`
+  to select a particular route. Point it at an isolated scratch proxy with
+  `--base-url` or `OPENCODE_GO_PROXY_BASE_URL`.
 - `support-bundle [--output PATH]` - writes the JSON schema v1 diagnostic bundle
   (version, generatedAt, env summary, redacted config snapshot, meter tail, log
   tail, catalog model count, doctor checks) to a mode-600 file. Secret-shaped
@@ -608,6 +638,17 @@ All commands run as subcommands of the console script, for example `opencode-go-
   and where logs live.
 
 ## Model catalog
+
+The Codex-specific catalog builder that selects low-cost OpenRouter, Go, and
+Zen routes and assembles the combined Go/Zen desktop catalog lives in
+[`tools/codex-picker/`](tools/codex-picker/README.md). It is kept alongside the
+proxy because its combined catalog must agree with the routes the proxy serves.
+The Windows switcher, health-checking watchdog, and Task Scheduler installer now
+live in that same directory. The current strict input-price cap is `$0.25/M`;
+its history and selection semantics are documented in
+[`tools/codex-picker/METHODOLOGY.md`](tools/codex-picker/METHODOLOGY.md).
+The Picker and Windows lifecycle scripts run from a repository checkout; `uvx`
+installs the proxy command-line package, not these repository tools.
 
 The proxy serves `/v1/models` from a runtime catalog in the state dir
 (`OPENCODE_GO_PROXY_STATE_DIR`, default `~/.codex/opencode-go-proxy/`). At startup it renders
@@ -637,10 +678,28 @@ cp ~/.codex/opencode-go-proxy/opencode-go-catalog.json ~/.codex/model-catalogs/o
 model_catalog_json = "/absolute/path/to/.codex/model-catalogs/opencode-go.json"
 ```
 
-The catalog ships with the `ModelsCache` wrapper (`fetched_at`/`etag`/`client_version`/`models`).
-Codex 0.142+ desktop app requires all four top-level fields — a bare `{"models": [...]}` catalog
-causes the model picker to fall back to "Custom" instead of showing the full list. The CLI
-(`codex debug models`) tolerates the bare format, so this only surfaces in the desktop app.
+The proxy-rendered file includes `fetched_at`, `etag`, and `client_version` alongside
+`models`, but these fields must not be confused with Codex's local-catalog contract.
+Codex documents and loads `model_catalog_json` as a version-specific `ModelsResponse`;
+the schema at this machine's local CLI `rust-v0.166.0` tag has a top-level `models`
+field. The same response shape is present in the earlier `rust-v0.142.0` tag cited
+by the old claim. The similarly named `ModelsCache`/`ModelsCacheEntry` is a separate
+internal on-disk cache type that carries freshness metadata. Official guidance is
+to match the catalog schema to the client's bundled CLI version, not to add cache
+fields to every local catalog. See the [Codex catalog guide](https://learn.chatgpt.com/docs/model-catalogs),
+the [v0.142.0 `ModelsResponse`](https://github.com/openai/codex/blob/rust-v0.142.0/codex-rs/protocol/src/openai_models.rs),
+the [current `ModelsResponse`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/openai_models.rs),
+and the [separate v0.142.0 cache type](https://github.com/openai/codex/blob/rust-v0.142.0/codex-rs/models-manager/src/cache.rs).
+
+This corrects the earlier blanket claim that Codex 0.142+ requires all four
+`ModelsCache` fields in `model_catalog_json`: the versioned Rust types do not
+support that claim. Nor does the source establish that a bare `{"models": [...]}`
+file causes the Desktop picker to show “Custom.” Desktop can have separate picker
+filtering or current-model resolution problems; for example, [issue #37700](https://github.com/openai/codex/issues/37700)
+reports a “Custom” label when the UI resolves a provider-prefixed model against a
+different list. `codex debug models` verifies the CLI's effective catalog, not
+the Desktop renderer. The exact behavior of this machine's Desktop build remains
+unverified here.
 
 ### Native models and merged catalog
 
@@ -682,8 +741,9 @@ on each `/v1/models` request (cached by file mtime), so editing the overlay and 
 the live list without a restart.
 
 If you want Codex's full `base_instructions` for each model, copy your Codex installation's
-bundled `models.json` and append the OpenCode Go entries from the reference catalog (keep the
-`ModelsCache` wrapper).
+bundled `models.json` for the matching client version and append the OpenCode Go entries from
+the reference catalog. Preserve the Codex `ModelsResponse` outer shape (`{"models": [...]}`);
+do not treat the internal on-disk cache metadata as a required local-catalog wrapper.
 
 ## Trace
 

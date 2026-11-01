@@ -1,49 +1,69 @@
 # Contributing
 
+This repository is the Picker-enhanced fork published at
+[`pskraemer11/opencode-go-proxy`](https://github.com/pskraemer11/opencode-go-proxy).
+The source project is [`kartikkabadi/opencode-go-proxy`](https://github.com/kartikkabadi/opencode-go-proxy).
+Contributions described here target this fork; use the `upstream` remote only
+when deliberately preparing a separate contribution to the source project.
+
 ## Setup
 
 ```bash
-git clone https://github.com/kartikkabadi/opencode-go-proxy.git
+git clone https://github.com/pskraemer11/opencode-go-proxy.git
 cd opencode-go-proxy
+git remote add upstream https://github.com/kartikkabadi/opencode-go-proxy.git
 uv sync
 ```
 
-## Development
+## Development and verification
+
+Run the same core checks used by this repository's CI:
 
 ```bash
-# Run tests
 uv run python -m pytest tests -v
-
-# Lint
 uvx ruff check
-
-# Build
 uv build
 ```
 
-## Code style
+The optional local Git test gate can be enabled for this clone with:
 
-- Python 3.11+, stdlib only (no dependencies).
-- Compact code. Delete before adding. One line before fifty.
-- Match existing style in `app.py` and `protocol.py`.
-- Trace every network call with the `trace()` function.
+```bash
+git config core.hooksPath .githooks
+```
+
+## Code style and project structure
+
+- Supported Python runtime: 3.11 and newer.
+- Declare runtime dependencies in `pyproject.toml`; the proxy currently uses
+  `zstandard` for compressed request bodies. `uv sync` installs the project and
+  its development dependencies.
+- Keep proxy implementation in `src/opencode_go_proxy/` and tests in `tests/`.
+  Follow the existing module boundaries and keep changes focused.
+- Route network calls through the existing tracing conventions, including
+  `trace()` where used by the module.
+- The Codex Picker and Windows lifecycle scripts are repository tools, not part
+  of the `uvx`-installed CLI package. Their inputs, credentials, checks, and
+  opt-in Task Scheduler setup are documented in
+  [`tools/codex-picker/README.md`](tools/codex-picker/README.md).
 
 ## Pull requests
 
-1. Fork and branch from `main`.
-2. Write tests for new behavior.
-3. Ensure `pytest tests -v` and `ruff check` pass.
-4. Keep diffs minimal — surgical changes only.
-5. Reference issues in your PR description.
+1. Create a topic branch from `main` in this repository and target this fork
+   with the pull request.
+2. Add or update tests for changed behavior.
+3. Run the verification commands above and report any skipped checks.
+4. Keep the diff focused and reference related issues in the pull request.
 
 ## Reporting issues
 
-Include:
+Include the relevant details:
+
 - Codex version (`codex --version`)
 - Proxy version (`opencode-go-proxy --version`)
-- Upstream provider (OpenCode Go, or custom `CHAT_COMPLETIONS_BASE_URL`)
-- Trace output (stderr JSON lines — redact API keys first)
-- Minimal repro steps
+- Affected workflow: OpenCode Go, OpenCode Zen, native OpenAI routing, or Picker
+  catalog generation (include data-source dates for catalog issues)
+- Trace output (stderr JSON lines; redact API keys first)
+- Minimal reproduction steps
 
 ## Security
 

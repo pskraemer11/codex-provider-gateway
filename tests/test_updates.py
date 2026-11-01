@@ -7,10 +7,10 @@ import time
 import urllib.error
 from unittest import mock
 
-import pytest
+from opencode_go_proxy import __version__, updates
 from support import POSIX_PERMISSIONS
 
-from opencode_go_proxy import __version__, updates
+import pytest
 
 _v = [int(x) for x in __version__.split(".")]
 _NEWER = f"{_v[0]}.{_v[1]}.{_v[2] + 1}"

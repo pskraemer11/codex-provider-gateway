@@ -14,6 +14,7 @@ a newer release without ever touching a running proxy.
 
 from __future__ import annotations
 
+import argparse
 import datetime
 import json
 import os
@@ -33,7 +34,6 @@ from typing import Any, Protocol
 from . import __version__, secrets
 from .config import ProxyConfig, resolve_chat_base_url
 from .meter import usage_events_path
-from .protocol import DEFAULT_MODEL
 
 Json = dict[str, Any]
 
@@ -331,15 +331,6 @@ def doctor(argv: list[str] | None = None) -> int:
     return 0 if report["ok"] else 1
 
 
-def _proxy_base_url(argv: list[str]) -> str:
-    base = os.environ.get(PROXY_BASE_URL_ENV) or DEFAULT_PROXY_BASE_URL
-    if "--base-url" in argv:
-        i = argv.index("--base-url")
-        if i + 1 < len(argv):
-            base = argv[i + 1]
-    return base.rstrip("/")
-
-
 def _response_text(payload: Json) -> str:
     if isinstance(payload.get("output_text"), str):
         return payload["output_text"]
@@ -351,16 +342,45 @@ def _response_text(payload: Json) -> str:
     return "\n".join(values)
 
 
+def _select_smoke_model(base_url: str) -> str:
+    """Choose the first currently advertised OpenCode Go model."""
+    req = urllib.request.Request(
+        f"{base_url}/v1/models",
+        headers={"accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        catalog = json.loads(resp.read().decode("utf-8"))
+    models = catalog.get("data") if isinstance(catalog, dict) else None
+    if not isinstance(models, list):
+        raise ValueError("proxy model catalog has no data list")
+    for entry in models:
+        model_id = entry.get("id") if isinstance(entry, dict) else None
+        if isinstance(model_id, str) and model_id.startswith("opencode-go/"):
+            return model_id
+    raise ValueError("proxy catalog advertises no opencode-go model; pass --model explicitly")
+
+
 def smoke_test(argv: list[str] | None = None) -> int:
     """Send one marker prompt through the local proxy; non-zero on failure."""
-    argv = argv or []
-    base = _proxy_base_url(argv)
+    parser = argparse.ArgumentParser(prog="opencode-go-proxy smoke-test")
+    parser.add_argument("--base-url", default=os.environ.get(PROXY_BASE_URL_ENV) or DEFAULT_PROXY_BASE_URL)
+    parser.add_argument("--model", help="model ID; by default the first advertised opencode-go model is used")
+    args = parser.parse_args(argv or [])
+    base = args.base_url.rstrip("/")
+    try:
+        model = args.model or _select_smoke_model(base)
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        sys.stdout.write(f"smoke-test FAIL: could not select a Go model from {base}/v1/models: {exc}\n")
+        return 1
     marker = SMOKE_MARKER
-    payload = json.dumps({
-        "model": DEFAULT_MODEL,
-        "input": f"Reply with exactly {marker} and nothing else.",
-        "stream": False,
-    }, separators=(",", ":")).encode("utf-8")
+    payload = json.dumps(
+        {
+            "model": model,
+            "input": f"Reply with exactly {marker} and nothing else.",
+            "stream": False,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
     req = urllib.request.Request(
         f"{base}/v1/responses",
         data=payload,
@@ -379,7 +399,7 @@ def smoke_test(argv: list[str] | None = None) -> int:
         return 1
     text = _response_text(value)
     if marker in text:
-        sys.stdout.write(f"smoke-test OK: model={value.get('model', DEFAULT_MODEL)} marker={marker} received\n")
+        sys.stdout.write(f"smoke-test OK: model={value.get('model', model)} marker={marker} received\n")
         return 0
     sys.stdout.write(f"smoke-test FAIL: completed response missing marker {marker!r}; got {text[:200]!r}\n")
     return 1

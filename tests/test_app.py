@@ -8,7 +8,6 @@ from http import HTTPStatus
 from unittest import mock
 
 import zstandard
-
 from opencode_go_proxy.app import ProxyConfig, ProxyError, decode_request_body
 from opencode_go_proxy.secrets import resolve_api_key
 from opencode_go_proxy.trace import _mask_trace_body

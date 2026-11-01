@@ -8,13 +8,13 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from typing import ClassVar
 
-import pytest
-
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.meter import record_usage_event
 from opencode_go_proxy.protocol import DEFAULT_MODEL
 from opencode_go_proxy.quota import quota_state_path, record_quota_from_headers
 from opencode_go_proxy.state import build_state, usage_summary
+
+import pytest
 
 UTC = datetime.UTC
 TZ = datetime.timezone(datetime.timedelta(hours=5, minutes=30))

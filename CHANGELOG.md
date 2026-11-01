@@ -2,8 +2,39 @@
 
 ## Unreleased
 
+### Fixed
+
+- The Codex Picker defines the strict `$0.25/M` input-price cap once and uses
+  it for filtering, audit/CSV validation, and displayed criteria. Methodology
+  records its history from `$0.50/M` and the one model excluded when the cap
+  was lowered.
+- Corrected the model-catalog documentation: local `model_catalog_json` uses
+  the version-specific Codex `ModelsResponse`; similarly named cache metadata
+  is separate internal storage. Desktop “Custom” behavior is not attributed to
+  a bare catalog without a matching client/UI reproduction.
+- Clarified that the 699-row 2026-10-13 AA snapshot comes from the Artificial
+  Analysis Free API endpoint and is only an Intelligence-index fallback, not a
+  list of provider models with zero token prices.
+- The Codex Picker treats an all-zero AA Intelligence population as unavailable
+  and falls back only to a valid dated AA snapshot. Selection now uses the
+  calibrated AA Intelligence Index exclusively; the 60/40 Coding/Agentic
+  composite and OpenRouter Coding fallback are not used. Intelligence values
+  are Min-Max calibrated over price-eligible candidates, and
+  spreadsheet-formula-like CSV cells are escaped.
+- `opencode-go-proxy smoke-test` selects a currently advertised `opencode-go/`
+  model when no model is supplied, instead of failing against a stale default
+  after catalog filtering. `--model` can select an explicit route.
+
 ### Added
 
+- Windows proxy lifecycle scripts now live in `tools/codex-picker/`: a logon
+  autostart and periodic health-watchdog installer, plus a provider switcher
+  that waits for `/health`. All three expose PowerShell comment-based help via
+  `Get-Help`/`-?`, with `-Help` and `--help` shortcuts. Task registration remains
+  an explicit user action and is not run by this change.
+- The provider-catalog builder accepts CLI overrides for the strict input-price
+  ceiling and minimum scaled AA Intelligence Index score; defaults remain
+  `$0.25/M` and a strict score `> 70`.
 - Local test gate under `.githooks/`, activated per clone with
   `git config core.hooksPath .githooks`. `pre-commit` runs Ruff and the full
   suite when a staged path starts with `src/`, `tests/`, `contrib/` or
@@ -15,12 +46,27 @@
   invocations that start the hook for another purpose, such as a CI privacy
   check. Upstream CI cannot replace this gate because
   its workflow ignores local branches.
+- Shared Codex catalog builder under `tools/codex-picker/` for OpenRouter,
+  OpenCode Go, Zen, and the combined proxy. The ordinary filter is input price
+  `< $0.25/M` and calibrated AA Intelligence score `>70`; the five explicitly pinned free routes
+  require verified `$0` input price and remain `unverified` when benchmark data
+  is missing. DeepSeek V4.1 Flash 1017 is preferred only when it qualifies.
+- `tools/codex-picker/METHODOLOGY.md` documents the calibration and score
+  policy; `export_review_csv.py` writes the dated audit as a CSV. The
+  2026-10-31 review file contains the evaluated candidates with input-price
+  ranges, calibrated scores, selection decisions, raw indices, and provenance.
+  It is explicitly marked as a non-live reconstruction because the subsequent
+  Artificial Analysis API rebuild was rate-limited; the complete local AA
+  snapshot and the one field-name-recovered Intelligence value are recorded.
 
 ### Security
 
 - Validate the actual client address and require a separate caller token for
   explicitly enabled non-loopback access.
 - Refuse insecure non-loopback startup configurations.
+- The Windows provider switcher validates catalog slugs, serializes TOML
+  strings safely, and limits reads/writes to unambiguous root-level settings;
+  profile and table values are left untouched.
 
 ### Changed
 
@@ -28,6 +74,9 @@
   substituting `deepseek-v4-flash`.
 - Avoid reverse-DNS lookup delays while starting the local listener.
 - Clarify the project's independent, single-user credential and policy boundary.
+- Publishing and contribution guidance now identify this fork as the canonical
+  repository while preserving upstream attribution. Release automation requires
+  an explicit remote and validates every push URL against `project.urls.Repository`.
 
 ### Fixed
 
@@ -51,6 +100,20 @@
   temporary directory: the shrink guard, genuine growth, a missing target file
   and a full-shape catalog without models. The script accepts its paths as
   arguments so it can be driven without touching `contrib/`.
+
+## Session update (31.10.2026)
+
+Change-review rationale, work state, and the next step are recorded in
+[`COMPACTIONS.md`](COMPACTIONS.md).
+
+| Date   | File                                             | Change                                                                   |
+| ------ | ------------------------------------------------ | ------------------------------------------------------------------------ |
+| 31.10. | `tools/codex-picker/watchdog-proxy.ps1`          | **added:** hidden health watchdog starts this checkout independently.    |
+| 31.10. | `tools/codex-picker/install-proxy-autostart.ps1` | **added:** opt-in logon and five-minute health tasks with WhatIf.        |
+| 31.10. | `tools/codex-picker/switch-provider.ps1`         | **added:** proxy target requires health before config change.            |
+| 31.10. | Picker rules, builder, exporter, and tests       | **changed:** one strict `$0.25/M` cap drives selection and reporting.    |
+| 31.10. | Picker methodology and READMEs                   | **docs:** price history, AA snapshot, Windows lifecycle, catalog schema. |
+| 31.10. | `CHANGELOG.md`                                   | **docs:** corrects the unsupported ModelsCache requirement claim.        |
 
 ## [0.4.10] - 2026-08-14
 
@@ -368,11 +431,12 @@
   zstd-compressed whenever it is authenticated; the proxy now decompresses
   `Content-Encoding: zstd` (and gzip) so the desktop app works. Unsupported
   encodings return an explicit 400 instead of crashing on a magic byte.
-- Reference catalog `contrib/opencode-go-catalog.json` now ships with the `ModelsCache` wrapper
-  (`fetched_at`/`etag`/`client_version`/`models`). Codex 0.142+ desktop app requires all four
-  top-level fields — the previous bare `{"models": [...]}` caused the model picker to fall back
-  to "Custom" instead of showing the full list. The CLI tolerated the bare format, so this only
-  surfaced in the desktop app.
+- The reference catalog `contrib/opencode-go-catalog.json` was extended with
+  `fetched_at`, `etag`, and `client_version` metadata. This was originally
+  described as a required `ModelsCache` wrapper for Codex 0.142+ Desktop, but
+  that requirement and its causal link to the “Custom” label were not supported
+  by the versioned Codex `ModelsResponse` source; see the corrected model-catalog
+  guidance in the current README.
 - SIGTERM graceful shutdown: `serve_forever` now runs on a background thread so the signal
   handler's `server.shutdown()` no longer deadlocks on the main thread, leaving the process
   unkillable via SIGTERM (launchd/systemd stop, menu bar Stop).
@@ -440,7 +504,7 @@ Initial public release.
 - No path reflection in 404 responses
 - Bind address guard warns on non-localhost
 
-[Unreleased]: https://github.com/kartikkabadi/opencode-go-proxy/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/pskraemer11/opencode-go-proxy/compare/v0.4.10...HEAD
 [0.4.0]: https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.4.0
 [0.3.1]: https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.3.0

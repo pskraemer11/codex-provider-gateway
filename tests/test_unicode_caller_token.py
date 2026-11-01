@@ -1,8 +1,6 @@
 from http.client import parse_headers
 from io import BytesIO
 
-import pytest
-
 from opencode_go_proxy.errors import ProxyError
 from opencode_go_proxy.guards import (
     CALLER_TOKEN_ENV,
@@ -10,6 +8,8 @@ from opencode_go_proxy.guards import (
     REMOTE_ENV,
     check_client,
 )
+
+import pytest
 
 
 def test_nonascii_supplied_token_is_rejected_instead_of_crashing(monkeypatch):

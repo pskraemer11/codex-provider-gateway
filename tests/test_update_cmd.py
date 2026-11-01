@@ -12,10 +12,10 @@ import subprocess
 import sys
 import types
 
-import pytest
-
 import opencode_go_proxy
 from opencode_go_proxy import ops
+
+import pytest
 
 ONE_LINER = "uvx --from git+https://github.com/kartikkabadi/opencode-go-proxy@v0.4.6 opencode-go-proxy"
 RELEASE_URL = "https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.4.6"

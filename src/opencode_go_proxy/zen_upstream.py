@@ -356,7 +356,9 @@ def _zen_post(
                 try:
                     value = json.loads(body)
                 except json.JSONDecodeError:
-                    raise ProxyError(HTTPStatus.BAD_GATEWAY, f"{provider} upstream returned invalid JSON", retries=retries)
+                    raise ProxyError(
+                        HTTPStatus.BAD_GATEWAY, f"{provider} upstream returned invalid JSON", retries=retries
+                    ) from None
                 if not isinstance(value, dict):
                     raise ProxyError(HTTPStatus.BAD_GATEWAY, f"{provider} upstream returned non-object JSON", retries=retries)
                 return value, retries

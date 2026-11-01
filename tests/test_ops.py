@@ -7,9 +7,8 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from support import POSIX_PERMISSIONS
-
 from opencode_go_proxy import ops
+from support import POSIX_PERMISSIONS
 
 
 class MockResp:
@@ -213,37 +212,61 @@ class TestDoctor:
 
 class TestSmoke:
     def test_ok(self) -> None:
-        body = json.dumps({
-            "model": "deepseek-v4-flash",
-            "output_text": f"Sure: {ops.SMOKE_MARKER}",
-            "output": [{"content": [{"text": ops.SMOKE_MARKER}]}],
-        }).encode()
-        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", return_value=MockResp(body)):
+        models = json.dumps({"data": [{"id": "native-model"}, {"id": "opencode-go/claude-haiku-5-5"}]}).encode()
+        body = json.dumps(
+            {
+                "model": "opencode-go/claude-haiku-5-5",
+                "output_text": f"Sure: {ops.SMOKE_MARKER}",
+                "output": [{"content": [{"text": ops.SMOKE_MARKER}]}],
+            }
+        ).encode()
+        with mock.patch(
+            "opencode_go_proxy.ops.urllib.request.urlopen",
+            side_effect=[MockResp(models), MockResp(body)],
+        ) as urlopen:
             assert ops.smoke_test() == 0
+        request = urlopen.call_args.args[0]
+        assert json.loads(request.data)["model"] == "opencode-go/claude-haiku-5-5"
 
     def test_http_error(self, capsys) -> None:
         with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", side_effect=_http_error(503, "proxy down")):
-            assert ops.smoke_test() == 1
+            assert ops.smoke_test(["--model", "opencode-go/test-model"]) == 1
         out = capsys.readouterr().out
         assert "HTTP 503" in out
         assert "proxy down" in out
 
     def test_proxy_unreachable(self, capsys) -> None:
-        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen",
-                        side_effect=urllib.error.URLError("refused")):
+        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", side_effect=urllib.error.URLError("refused")):
             assert ops.smoke_test() == 1
-        assert "not reachable" in capsys.readouterr().out
+        assert "could not select a Go model" in capsys.readouterr().out
 
     def test_marker_missing(self, capsys) -> None:
+        models = json.dumps({"data": [{"id": "opencode-go/test-model"}]}).encode()
         body = json.dumps({"output_text": "wrong answer"}).encode()
-        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", return_value=MockResp(body)):
+        with mock.patch(
+            "opencode_go_proxy.ops.urllib.request.urlopen",
+            side_effect=[MockResp(models), MockResp(body)],
+        ):
             assert ops.smoke_test() == 1
         assert "missing marker" in capsys.readouterr().out
 
+    def test_no_go_model_advertised(self, capsys) -> None:
+        models = json.dumps({"data": [{"id": "zen/test-model"}, {"id": "native-model"}]}).encode()
+        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", return_value=MockResp(models)) as urlopen:
+            assert ops.smoke_test() == 1
+        assert urlopen.call_count == 1
+        assert "no opencode-go model" in capsys.readouterr().out
+
     def test_custom_base_env(self) -> None:
+        models = json.dumps({"data": [{"id": "opencode-go/test-model"}]}).encode()
         body = json.dumps({"output_text": ops.SMOKE_MARKER}).encode()
-        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_BASE_URL": "http://127.0.0.1:8790"}), \
-             mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", return_value=MockResp(body)) as urlopen:
+        with (
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_BASE_URL": "http://127.0.0.1:8790"}),
+            mock.patch(
+                "opencode_go_proxy.ops.urllib.request.urlopen",
+                side_effect=[MockResp(models), MockResp(body)],
+            ) as urlopen,
+        ):
             assert ops.smoke_test() == 0
         req = urlopen.call_args.args[0]
         assert req.full_url.startswith("http://127.0.0.1:8790/v1/responses")
@@ -252,7 +275,7 @@ class TestSmoke:
     def test_base_url_flag(self) -> None:
         body = json.dumps({"output_text": ops.SMOKE_MARKER}).encode()
         with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", return_value=MockResp(body)) as urlopen:
-            assert ops.smoke_test(["--base-url", "http://127.0.0.1:9000/"]) == 0
+            assert ops.smoke_test(["--base-url", "http://127.0.0.1:9000/", "--model", "opencode-go/test-model"]) == 0
         req = urlopen.call_args.args[0]
         assert req.full_url == "http://127.0.0.1:9000/v1/responses"
 

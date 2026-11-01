@@ -10,10 +10,10 @@ import urllib.request
 from http.client import HTTPConnection
 from unittest import mock
 
-import pytest
+from opencode_go_proxy.app import ProxyConfig, ProxyHTTPServer, ResponsesProxyHandler
 from support import isolated_env
 
-from opencode_go_proxy.app import ProxyConfig, ProxyHTTPServer, ResponsesProxyHandler
+import pytest
 
 
 def make_config(port: int) -> ProxyConfig:
@@ -425,7 +425,7 @@ class TestVersionFlag:
 
         from opencode_go_proxy import __version__
         result = subprocess.run(
-            ["uv", "run", "opencode-go-proxy", "--version"],
+            ["uv", "run", "--no-sync", "opencode-go-proxy", "--version"],
             capture_output=True, text=True, check=False, cwd=os.path.dirname(os.path.dirname(__file__)),
         )
         assert result.returncode == 0

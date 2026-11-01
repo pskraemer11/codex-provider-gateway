@@ -7,9 +7,6 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-import pytest
-from support import write_python_executable
-
 from opencode_go_proxy import codex_tools
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.codex_tools import (
@@ -24,6 +21,9 @@ from opencode_go_proxy.protocol import (
     responses_payload_to_chat_payload,
     responses_tools_to_chat_tools,
 )
+from support import write_python_executable
+
+import pytest
 
 SESSION_MODEL = "opencode-go/deepseek-v4-flash"
 
