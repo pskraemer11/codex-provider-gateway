@@ -10,9 +10,11 @@ This repository combines two related but separate tools:
   local Go/Zen proxy. It does not construct the complete Pareto frontier line,
   but selects a defined point on it which you can choose.
 
-- The OpenRouter provider is used directly by Codex.
+There are two ways to use the generated catalogs:
+
+- The OpenRouter provider is used directly by Codex through the picked OpenRouter catalog.
 - OpenCode Go and Zen can be used through the local proxy, which translates the
-  wire protocol per model family.
+  wire protocol per model family using the generated Go/Zen catalog.
 
 ```text
 Codex
