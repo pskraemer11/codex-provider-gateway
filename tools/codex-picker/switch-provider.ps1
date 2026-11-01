@@ -308,9 +308,9 @@ function Test-ProviderTable {
 
     $escaped = [regex]::Escape($Name)
     $patterns = @(
-        "^[ \t]*\[model_providers\.$escaped\][ \t]*(?:#.*)?$",
-        "^[ \t]*\[model_providers\.`"$escaped`"\][ \t]*(?:#.*)?$",
-        "^[ \t]*\[model_providers\.'$escaped'\][ \t]*(?:#.*)?$"
+        "^[ \t]*\[model_providers\.$escaped\][ \t]*(?:#.*)?\r?$",
+        "^[ \t]*\[model_providers\.`"$escaped`"\][ \t]*(?:#.*)?\r?$",
+        "^[ \t]*\[model_providers\.'$escaped'\][ \t]*(?:#.*)?\r?$"
     )
     return $patterns | Where-Object { [regex]::IsMatch($Text, $_, [System.Text.RegularExpressions.RegexOptions]::Multiline) } |
         Select-Object -First 1

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- The Windows provider switcher now recognizes provider tables in CRLF
+  `config.toml` files. The PowerShell fixture writes CRLF explicitly so this
+  compatibility path remains covered.
 - `/v1/chat/completions` now rejects Zen Claude, Gemini, and GPT/Grok models
   before any upstream call when their protocol family is not Chat Completions.
 - The catalog picker no longer depends on an undocumented bundled catalog:

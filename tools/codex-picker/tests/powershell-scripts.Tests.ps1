@@ -40,6 +40,7 @@ base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
 env_key = "OPENCODE_GO_API_KEY"
 '@
+    $config = $config -replace "(?<!\r)\n", "`r`n"
     [System.IO.File]::WriteAllText($configPath, $config, [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::WriteAllText(
         $catalogPath,
