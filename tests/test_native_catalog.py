@@ -5,9 +5,10 @@ import os
 import shutil
 from unittest import mock
 
+from support import write_python_executable
+
 from opencode_go_proxy import catalog, native_models
 from opencode_go_proxy.meter import state_dir
-from support import write_python_executable
 
 NATIVE_FIXTURE = {
     "models": [
@@ -129,12 +130,14 @@ def test_capture_writes_and_prints_target(tmp_path, capsys) -> None:
 
 
 def test_missing_bin_errors_cleanly(capsys) -> None:
-    with mock.patch.object(native_models, "_codex_bin_candidates", return_value=()):
-        with mock.patch.object(shutil, "which", return_value=None):
-            with mock.patch.dict(
-                os.environ, {native_models.CODEX_BIN_ENV: "/nonexistent/codex-bin"}
-            ):
-                rc = native_models.native_capture_cmd(["--dry-run"])
+    with (
+        mock.patch.object(native_models, "_codex_bin_candidates", return_value=()),
+        mock.patch.object(shutil, "which", return_value=None),
+        mock.patch.dict(
+            os.environ, {native_models.CODEX_BIN_ENV: "/nonexistent/codex-bin"}
+        ),
+    ):
+        rc = native_models.native_capture_cmd(["--dry-run"])
     assert rc == 1
     assert "error" in capsys.readouterr().err
 

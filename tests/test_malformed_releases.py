@@ -2,9 +2,9 @@ import io
 import json
 from unittest import mock
 
-from opencode_go_proxy import updates
-
 import pytest
+
+from opencode_go_proxy import updates
 
 
 @pytest.mark.parametrize("payload", [None, 42, "bad", ["bad"]])

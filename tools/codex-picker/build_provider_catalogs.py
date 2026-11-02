@@ -257,7 +257,7 @@ def fetch_aa_snapshot(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]
 
     retrieved_at = meta.get("retrieved_at_utc")
     try:
-        retrieved = datetime.fromisoformat(str(retrieved_at).replace("Z", "+00:00"))
+        retrieved = datetime.fromisoformat(str(retrieved_at))
     except ValueError:
         return [], {
             "status": "invalid",
@@ -713,7 +713,7 @@ def _price_ids(tiers: list[PriceTier], route_ids: list[str]) -> dict[str, str]:
         by_key.setdefault(_slug_key(route_id), []).append(route_id)
     names = {_display_key(tier.model_name): tier.model_name for tier in tiers}
     result: dict[str, str] = {}
-    for _key, display_name in names.items():
+    for display_name in names.values():
         matches = by_key.get(_slug_key(display_name), [])
         if len(matches) == 1:
             result[matches[0]] = display_name

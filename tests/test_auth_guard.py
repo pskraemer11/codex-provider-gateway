@@ -8,6 +8,8 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
+import pytest
+
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.errors import ProxyError
 from opencode_go_proxy.guards import (
@@ -17,8 +19,6 @@ from opencode_go_proxy.guards import (
     check_client,
     validate_bind_security,
 )
-
-import pytest
 
 
 def make_config(port: int) -> ProxyConfig:

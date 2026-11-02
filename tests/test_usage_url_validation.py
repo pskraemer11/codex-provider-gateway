@@ -1,7 +1,7 @@
+import pytest
+
 from opencode_go_proxy import usage_poller
 from opencode_go_proxy.secrets import clear_api_key_cache
-
-import pytest
 
 
 @pytest.mark.parametrize(

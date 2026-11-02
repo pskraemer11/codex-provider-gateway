@@ -9,10 +9,10 @@ import json
 import os
 from unittest import mock
 
-from opencode_go_proxy import config_manager
+import pytest
 from support import POSIX_PERMISSIONS, write_python_executable
 
-import pytest
+from opencode_go_proxy import config_manager
 
 
 @pytest.fixture

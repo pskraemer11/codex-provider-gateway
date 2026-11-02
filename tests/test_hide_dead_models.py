@@ -13,6 +13,8 @@ auto-hid), and a restart starts with fresh strikes.
 import json
 import os
 
+import pytest
+
 from opencode_go_proxy import catalog, zen_catalog
 from opencode_go_proxy.app import (
     _auto_hidden,
@@ -23,8 +25,6 @@ from opencode_go_proxy.app import (
     record_go_unsupported,
 )
 from opencode_go_proxy.meter import state_dir
-
-import pytest
 
 DEAD_SLUG = "deepseek-v4-flash"
 MERGED_DEAD_SLUG = f"opencode-go/{DEAD_SLUG}"

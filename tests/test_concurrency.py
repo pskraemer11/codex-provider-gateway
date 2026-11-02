@@ -8,11 +8,11 @@ from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from opencode_go_proxy.app import ResponsesProxyHandler
-from opencode_go_proxy.config import ProxyConfig
+import pytest
 from support import isolated_env
 
-import pytest
+from opencode_go_proxy.app import ResponsesProxyHandler
+from opencode_go_proxy.config import ProxyConfig
 
 N = 10
 

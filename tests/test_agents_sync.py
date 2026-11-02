@@ -9,9 +9,9 @@ import json
 import os
 import tomllib
 
-from opencode_go_proxy import agents_sync, catalog
-
 import pytest
+
+from opencode_go_proxy import agents_sync, catalog
 
 
 def _write_compact(state_dir: str, slugs: list[str]) -> None:

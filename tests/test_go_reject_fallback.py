@@ -20,6 +20,8 @@ import urllib.error
 from http import HTTPStatus
 from unittest import mock
 
+import pytest
+
 from opencode_go_proxy import catalog, routing, zen_catalog
 from opencode_go_proxy.app import (
     ProxyConfig,
@@ -34,8 +36,6 @@ from opencode_go_proxy.streaming import (
     handle_chat_stream_passthrough,
     handle_streaming_request,
 )
-
-import pytest
 
 ZEN_SLUG = "north-mini-code-free"
 

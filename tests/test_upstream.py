@@ -7,6 +7,8 @@ import urllib.error
 from http import HTTPStatus
 from unittest import mock
 
+import pytest
+
 from opencode_go_proxy.app import ProxyConfig
 from opencode_go_proxy.errors import ProxyError
 from opencode_go_proxy.secrets import clear_api_key_cache
@@ -17,8 +19,6 @@ from opencode_go_proxy.upstream import (
     call_upstream_chat_verbatim,
     caption_timeout_sec,
 )
-
-import pytest
 
 
 def make_config() -> ProxyConfig:

@@ -8,6 +8,9 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
+import pytest
+from support import write_python_executable
+
 from opencode_go_proxy import codex_tools, native_models
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.codex_tools import (
@@ -22,9 +25,6 @@ from opencode_go_proxy.protocol import (
     responses_payload_to_chat_payload,
     responses_tools_to_chat_tools,
 )
-from support import write_python_executable
-
-import pytest
 
 SESSION_MODEL = "opencode-go/deepseek-v4-flash"
 
@@ -222,10 +222,12 @@ class TestCapture:
         assert tools is None
 
     def test_capture_invalid_override_falls_back_to_path_codex(self, fake_codex_bin) -> None:
-        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_CODEX_BIN": "/nonexistent/codex-bin"}):
-            with mock.patch.object(native_models, "_codex_bin_candidates", return_value=()):
-                with mock.patch.object(shutil, "which", return_value=fake_codex_bin):
-                    tools = capture_codex_app_tools()
+        with (
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_CODEX_BIN": "/nonexistent/codex-bin"}),
+            mock.patch.object(native_models, "_codex_bin_candidates", return_value=()),
+            mock.patch.object(shutil, "which", return_value=fake_codex_bin),
+        ):
+            tools = capture_codex_app_tools()
         assert tools is not None
         assert snapshot_names(tools) == {"codex_app__create_thread", "codex_app__list_threads"}
 

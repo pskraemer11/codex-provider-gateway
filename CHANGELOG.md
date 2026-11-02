@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Repository-local Ruff configuration and version pins keep local, hook, and
+  CI checks aligned instead of inheriting a parent workspace configuration; test
+  import ordering is normalized under the new project root.
+- The local test gate now scopes Pytest to `tests`. Safe Ruff modernizations
+  replace redundant suffix, timestamp, and dict-value handling, and combine
+  deeply nested test context managers.
 - Windows scheduled tasks now start the watchdog through `wscript.exe` and the
   installed `hidden-run.vbs` instead of launching `pwsh.exe` directly. This
   restores the console-flash fix for the five-minute health check while keeping

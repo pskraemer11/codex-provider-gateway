@@ -14,10 +14,10 @@ import json
 import os
 import tomllib
 
-from opencode_go_proxy import config_manager
+import pytest
 from support import POSIX_PERMISSIONS, write_python_executable
 
-import pytest
+from opencode_go_proxy import config_manager
 
 # A user-declared provider table "owns" a key: the managed block must omit the
 # table entirely (TOML forbids splitting one table across two locations) and

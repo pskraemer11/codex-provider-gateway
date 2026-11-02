@@ -11,13 +11,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
 from unittest import mock
 
+import pytest
+
 from opencode_go_proxy import passthrough
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.errors import ProxyError
 from opencode_go_proxy.meter import state_dir, usage_events_path
 from opencode_go_proxy.passthrough import relay_native_request
-
-import pytest
 
 
 class _FakeChatGpt(BaseHTTPRequestHandler):

@@ -10,10 +10,10 @@ import urllib.request
 from http.client import HTTPConnection
 from unittest import mock
 
-from opencode_go_proxy.app import ProxyConfig, ProxyHTTPServer, ResponsesProxyHandler
+import pytest
 from support import isolated_env
 
-import pytest
+from opencode_go_proxy.app import ProxyConfig, ProxyHTTPServer, ResponsesProxyHandler
 
 
 def make_config(port: int) -> ProxyConfig:

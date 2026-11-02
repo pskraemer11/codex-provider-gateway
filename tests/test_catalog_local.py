@@ -14,11 +14,11 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from opencode_go_proxy import catalog, protocol
 from opencode_go_proxy.app import ResponsesProxyHandler
 from opencode_go_proxy.config import ProxyConfig
-
-import pytest
 
 
 def base_models() -> list[dict]:

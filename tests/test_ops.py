@@ -7,8 +7,9 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from opencode_go_proxy import ops
 from support import POSIX_PERMISSIONS
+
+from opencode_go_proxy import ops
 
 
 class MockResp:

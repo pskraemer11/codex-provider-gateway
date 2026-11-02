@@ -26,13 +26,13 @@ from http.client import HTTPConnection, HTTPResponse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
+import pytest
+
 from opencode_go_proxy import catalog
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.meter import usage_events_path
 from opencode_go_proxy.secrets import clear_api_key_cache, resolve_api_key
 from opencode_go_proxy.usage_poller import clear_cache as clear_usage_poller_cache
-
-import pytest
 
 SCRATCH_PORT_PREFERRED = 8792
 PROXY_TIMEOUT_SEC = 2.0

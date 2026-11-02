@@ -87,8 +87,7 @@ def normalize_github_repository_url(url: str) -> str:
         raise SystemExit("expected a GitHub repository URL")
 
     path = parsed.path.strip("/")
-    if path.endswith(".git"):
-        path = path[:-4]
+    path = path.removesuffix(".git")
     parts = path.split("/")
     if len(parts) != 2 or any(not part or part in {".", ".."} for part in parts):
         raise SystemExit("expected a GitHub repository URL")

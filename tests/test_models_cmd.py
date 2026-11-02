@@ -2,9 +2,9 @@
 import json
 import os
 
-from opencode_go_proxy import catalog, models_cmd
-
 import pytest
+
+from opencode_go_proxy import catalog, models_cmd
 
 
 @pytest.fixture

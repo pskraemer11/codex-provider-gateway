@@ -3,6 +3,8 @@ import json
 from email.message import Message
 from unittest import mock
 
+import pytest
+
 from opencode_go_proxy import catalog, go_upstream, zen_upstream
 from opencode_go_proxy.config import ProxyConfig
 from opencode_go_proxy.errors import ProxyError
@@ -18,8 +20,6 @@ from opencode_go_proxy.go_models import (
 )
 from opencode_go_proxy.opencode_session import resolve_opencode_session
 from opencode_go_proxy.protocol import restore_namespaced_function_calls
-
-import pytest
 
 
 def config() -> ProxyConfig:
