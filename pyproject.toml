@@ -19,9 +19,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pskraemer11/opencode-go-proxy"
-Repository = "https://github.com/pskraemer11/opencode-go-proxy"
-Issues = "https://github.com/pskraemer11/opencode-go-proxy/issues"
+Homepage = "https://github.com/pskraemer11/codex-provider-gateway"
+Repository = "https://github.com/pskraemer11/codex-provider-gateway"
+Issues = "https://github.com/pskraemer11/codex-provider-gateway/issues"
 
 [project.scripts]
 opencode-go-proxy = "opencode_go_proxy.app:main"

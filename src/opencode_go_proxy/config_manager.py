@@ -316,6 +316,26 @@ def _atomic_write(path: str, contents: str) -> None:
         raise
 
 
+def _reserve_backup_path(path: str, timestamp: str) -> str:
+    """Atomically reserve a unique backup name, even when the clock is coarse."""
+    directory = os.path.dirname(path) or "."
+    basename = os.path.basename(path)
+    for sequence in range(10_000):
+        suffix = "" if sequence == 0 else f"-{sequence:04d}"
+        candidate = os.path.join(directory, f"{basename}.bak-{timestamp}{suffix}")
+        try:
+            descriptor = os.open(
+                candidate,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                stat.S_IRUSR | stat.S_IWUSR,
+            )
+        except FileExistsError:
+            continue
+        os.close(descriptor)
+        return candidate
+    raise OSError(f"could not reserve a unique backup path for {path}")
+
+
 def _backup_config(path: str, contents: str) -> str | None:
     """Snapshot the pre-edit config to config.toml.bak-<UTC timestamp>.
 
@@ -329,8 +349,15 @@ def _backup_config(path: str, contents: str) -> str | None:
     if not os.path.exists(path):
         return None
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S-%f")
-    backup_path = f"{path}.bak-{timestamp}"
-    _atomic_write(backup_path, contents)
+    backup_path = _reserve_backup_path(path, timestamp)
+    try:
+        _atomic_write(backup_path, contents)
+    except BaseException:
+        try:
+            os.unlink(backup_path)
+        except OSError:
+            pass
+        raise
     return backup_path
 
 

@@ -16,23 +16,23 @@ SPEC.loader.exec_module(make_release)
 @pytest.mark.parametrize(
     "url",
     [
-        "https://github.com/pskraemer11/opencode-go-proxy",
-        "https://github.com/pskraemer11/opencode-go-proxy.git",
-        "git@github.com:pskraemer11/opencode-go-proxy.git",
-        "ssh://git@github.com/pskraemer11/opencode-go-proxy.git",
+        "https://github.com/pskraemer11/codex-provider-gateway",
+        "https://github.com/pskraemer11/codex-provider-gateway.git",
+        "git@github.com:pskraemer11/codex-provider-gateway.git",
+        "ssh://git@github.com/pskraemer11/codex-provider-gateway.git",
     ],
 )
 def test_normalize_github_repository_url(url):
     assert (
         make_release.normalize_github_repository_url(url)
-        == "github.com/pskraemer11/opencode-go-proxy"
+        == "github.com/pskraemer11/codex-provider-gateway"
     )
 
 
 def test_normalize_github_repository_url_rejects_non_repository_urls():
     with pytest.raises(SystemExit, match="GitHub repository URL"):
         make_release.normalize_github_repository_url(
-            "https://github.com/pskraemer11/opencode-go-proxy/tree/main"
+            "https://github.com/pskraemer11/codex-provider-gateway/tree/main"
         )
 
 
@@ -45,7 +45,7 @@ def test_release_remote_must_match_project_repository(monkeypatch):
 
     with pytest.raises(SystemExit, match="does not match the project repository"):
         make_release.validate_release_remote(
-            "origin", "https://github.com/pskraemer11/opencode-go-proxy"
+            "origin", "https://github.com/pskraemer11/codex-provider-gateway"
         )
 
 
@@ -55,12 +55,12 @@ def test_release_remote_accepts_matching_push_url(monkeypatch):
         make_release,
         "run_git",
         lambda arguments: commands.append(arguments)
-        or "ssh://git@github.com/pskraemer11/opencode-go-proxy.git",
+        or "ssh://git@github.com/pskraemer11/codex-provider-gateway.git",
     )
 
     assert make_release.validate_release_remote(
-        "fork", "https://github.com/pskraemer11/opencode-go-proxy"
-    ) == "github.com/pskraemer11/opencode-go-proxy"
+        "fork", "https://github.com/pskraemer11/codex-provider-gateway"
+    ) == "github.com/pskraemer11/codex-provider-gateway"
     assert commands == [["remote", "get-url", "--push", "--all", "fork"]]
 
 
@@ -70,7 +70,7 @@ def test_release_remote_rejects_any_mismatched_push_url(monkeypatch):
         "run_git",
         lambda arguments: "\n".join(
             [
-                "https://github.com/pskraemer11/opencode-go-proxy.git",
+                "https://github.com/pskraemer11/codex-provider-gateway.git",
                 "https://github.com/kartikkabadi/opencode-go-proxy.git",
             ]
         ),
@@ -78,20 +78,20 @@ def test_release_remote_rejects_any_mismatched_push_url(monkeypatch):
 
     with pytest.raises(SystemExit, match="does not match the project repository"):
         make_release.validate_release_remote(
-            "fork", "https://github.com/pskraemer11/opencode-go-proxy"
+            "fork", "https://github.com/pskraemer11/codex-provider-gateway"
         )
 
 
 def test_release_anchor_uses_project_repository():
     assert make_release.release_anchor(
-        "0.4.11", "https://github.com/pskraemer11/opencode-go-proxy"
-    ) == "[0.4.11]: https://github.com/pskraemer11/opencode-go-proxy/releases/tag/v0.4.11"
+        "0.4.11", "https://github.com/pskraemer11/codex-provider-gateway"
+    ) == "[0.4.11]: https://github.com/pskraemer11/codex-provider-gateway/releases/tag/v0.4.11"
 
 
 def test_project_repository_url_is_the_fork():
     assert make_release.normalize_github_repository_url(
         make_release.project_repository_url()
-    ) == "github.com/pskraemer11/opencode-go-proxy"
+    ) == "github.com/pskraemer11/codex-provider-gateway"
 
 
 def test_write_changelog_inserts_release_under_unreleased_heading(tmp_path, monkeypatch):
@@ -106,13 +106,13 @@ def test_write_changelog_inserts_release_under_unreleased_heading(tmp_path, monk
     make_release.write_changelog(
         "0.4.11",
         "## [0.4.11] - 2026-10-31\n\n### Added\n\n- released change",
-        "https://github.com/pskraemer11/opencode-go-proxy",
+        "https://github.com/pskraemer11/codex-provider-gateway",
     )
 
     updated = changelog_path.read_text(encoding="utf-8")
     assert updated.index("## [Unreleased]") < updated.index("## [0.4.11]")
     assert updated.index("## [0.4.11]") < updated.index("## [0.4.10]")
-    assert "[0.4.11]: https://github.com/pskraemer11/opencode-go-proxy/releases/tag/v0.4.11" in updated
+    assert "[0.4.11]: https://github.com/pskraemer11/codex-provider-gateway/releases/tag/v0.4.11" in updated
 
 
 def test_release_cli_requires_explicit_remote_for_dry_run():

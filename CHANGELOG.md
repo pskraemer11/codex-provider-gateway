@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Config backups now reserve their filenames atomically and add a deterministic
+  numeric suffix when two backups receive the same timestamp. This prevents a
+  fast enable/disable sequence from overwriting an earlier backup on Windows.
 - The Windows provider switcher now recognizes provider tables in CRLF
   `config.toml` files. The PowerShell fixture writes CRLF explicitly so this
   compatibility path remains covered.
@@ -51,6 +54,8 @@
 
 ### Added
 
+- `README_de.md` provides a complete German parallel version of the README,
+  with language links in both directions.
 - Public issue forms for reproducible bug reports and focused feature requests,
   with a template chooser that routes security reports to private advisories.
 - CI now includes a Windows job that parses every Picker PowerShell script and
@@ -98,6 +103,9 @@
 
 ### Changed
 
+- The canonical fork references now use
+  `pskraemer11/codex-provider-gateway`, matching the renamed GitHub repository.
+  README headings and its catalog summary table are now consistently English.
 - Picker calibration now uses the complete usable live AA Intelligence
   population before price filtering, and the default normalized quality
   threshold is `> 50/100`. This prevents the 0–100 scale from being redefined
@@ -538,7 +546,7 @@ Initial public release.
 - No path reflection in 404 responses
 - Bind address guard warns on non-localhost
 
-[Unreleased]: https://github.com/pskraemer11/opencode-go-proxy/compare/v0.4.10...HEAD
+[Unreleased]: https://github.com/pskraemer11/codex-provider-gateway/compare/v0.4.10...HEAD
 [0.4.0]: https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.4.0
 [0.3.1]: https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.3.0

@@ -4,6 +4,7 @@ Every test targets OPENCODE_GO_PROXY_CONFIG_PATH in tmp_path; the real
 ~/.codex/config.toml is never read or written.
 """
 
+import datetime
 import json
 import os
 from unittest import mock
@@ -375,6 +376,25 @@ class TestBackup:
         directory = os.path.dirname(cfg_path)
         backups = _backup_names(directory, cfg_path)
         assert len(backups) == 2
+        assert _read(os.path.join(directory, backups[-1])) == enabled_text
+
+    def test_backups_stay_unique_when_clock_does_not_advance(self, cfg_path, monkeypatch) -> None:
+        """A coarse clock must not make a later backup overwrite an earlier one."""
+        with open(cfg_path, "w", encoding="utf-8") as handle:
+            handle.write('model = "gpt-5.6-luna"\n')
+        fixed_now = datetime.datetime(2026, 11, 2, 12, 0, 0, tzinfo=datetime.UTC)
+        fake_datetime = mock.Mock()
+        fake_datetime.now.return_value = fixed_now
+        monkeypatch.setattr(config_manager.datetime, "datetime", fake_datetime)
+
+        config_manager.enable()
+        enabled_text = _read(cfg_path)
+        config_manager.disable()
+
+        directory = os.path.dirname(cfg_path)
+        backups = _backup_names(directory, cfg_path)
+        assert len(backups) == 2
+        assert backups[1].endswith("-0001")
         assert _read(os.path.join(directory, backups[-1])) == enabled_text
 
     def test_disable_file_removal_still_backs_up(self, cfg_path) -> None:

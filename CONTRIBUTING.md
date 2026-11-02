@@ -1,7 +1,7 @@
 # Contributing
 
 This repository is the Picker-enhanced fork published at
-[`pskraemer11/opencode-go-proxy`](https://github.com/pskraemer11/opencode-go-proxy).
+[`pskraemer11/codex-provider-gateway`](https://github.com/pskraemer11/codex-provider-gateway).
 The source project is [`kartikkabadi/opencode-go-proxy`](https://github.com/kartikkabadi/opencode-go-proxy).
 Contributions described here target this fork; use the `upstream` remote only
 when deliberately preparing a separate contribution to the source project.
@@ -9,8 +9,8 @@ when deliberately preparing a separate contribution to the source project.
 ## Setup
 
 ```bash
-git clone https://github.com/pskraemer11/opencode-go-proxy.git
-cd opencode-go-proxy
+git clone https://github.com/pskraemer11/codex-provider-gateway.git
+cd codex-provider-gateway
 git remote add upstream https://github.com/kartikkabadi/opencode-go-proxy.git
 uv sync
 ```

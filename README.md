@@ -1,5 +1,7 @@
 # Codex Provider Gateway
 
+English | [Deutsch](README_de.md)
+
 This repository combines two related but separate tools:
 
 - `opencode-go-proxy` is a local, single-user Responses API adapter for Codex.
@@ -31,19 +33,19 @@ The toolchain produces the following catalogs. Counts are an example from the
 31 October 2026 audit. For proxy routes, the live `/v1/models` response is
 authoritative; the picker and direct-provider files are generated snapshots.
 
-| Datei                 | Zweck                                   | Inhalt im Audit                       |
-| --------------------- | --------------------------------------- | ------------------------------------: |
-| `picker-catalog.json` | direkter OpenRouter-Provider            | 8 Modelle                             |
-| `go-catalog.json`     | direkter OpenCode-Go-Provider           | 3 Modelle                             |
-| `zen-catalog.json`    | direkter OpenCode-Zen-Provider          | 5 Modelle                             |
-| `proxy-catalog.json`  | kombinierter Go/Zen-Proxy               | 8 Modelle                             |
-| `merged-models.json`  | Proxy-Runtime, nicht vom Picker erzeugt | native Modelle plus 110 Go/Zen-Routen |
+| File                  | Purpose                              | Audit contents                       |
+| --------------------- | ------------------------------------ | -----------------------------------: |
+| `picker-catalog.json` | Direct OpenRouter provider           | 8 models                             |
+| `go-catalog.json`     | Direct OpenCode Go provider          | 3 models                             |
+| `zen-catalog.json`    | Direct OpenCode Zen provider         | 5 models                             |
+| `proxy-catalog.json`  | Combined Go/Zen proxy                | 8 models                             |
+| `merged-models.json`  | Proxy runtime, not written by Picker | Native models plus 110 Go/Zen routes |
 
 The picker writes `picker-catalog.json`, `go-catalog.json`, `zen-catalog.json`,
 and `proxy-catalog.json`. The proxy writes the runtime files under its state
 directory, including `merged-models.json`.
 
-## Funktion
+## How it works
 
 Codex sends Responses API requests to `POST /v1/responses`. The proxy accepts
 both `/responses` and `/v1/responses`, then selects one of three destinations:
@@ -54,10 +56,14 @@ both `/responses` and `/v1/responses`, then selects one of three destinations:
 - OpenCode Zen models use `zen/<model-id>` slugs and are discovered dynamically.
 
 The documented Go set currently contains 33 models: 5 Responses, 19 Chat
-Completions, and 9 Anthropic Messages models. Four additional legacy IDs with a
-verified protocol family are also accepted. The checked-in seed keeps startup
-working offline. Runtime refresh only accepts documented or protocol-certified
-IDs; an unknown ID is rejected before an upstream request is made.
+Completions, and 9 Anthropic Messages models. The picker can select among them
+using price and intelligence-index limits, allowing you to choose a different
+point on the Pareto frontier.
+
+Four additional legacy IDs with a verified protocol family are also accepted.
+The checked-in seed keeps startup working offline. Runtime refresh only accepts
+documented or protocol-certified IDs; an unknown ID is rejected before an
+upstream request is made.
 
 Zen discovers its model list from OpenCode and uses models.dev metadata when
 available. Families map to:
@@ -93,7 +99,7 @@ Install the proxy persistently, then run the loopback-only adapter:
 ```powershell
 $env:OPENCODE_GO_API_KEY = "your-key"
 
-uv tool install --python 3.12 git+https://github.com/pskraemer11/opencode-go-proxy
+uv tool install --python 3.12 git+https://github.com/pskraemer11/codex-provider-gateway
 
 opencode-go-proxy config enable
 opencode-go-proxy --bind 127.0.0.1 --port 8787
@@ -132,7 +138,7 @@ enabling it:
 pwsh -File tools/codex-picker/install-proxy-autostart.ps1 -WhatIf -ReplaceExisting
 ```
 
-### Katalogpicker
+### Catalog picker
 
 The picker runs from a repository checkout; installing the proxy persistently
 does not install the picker.
@@ -164,10 +170,14 @@ Writes to the active Codex home require a reachable proxy, unless
 flag is required when `--check` should run without a live proxy. Existing
 catalogs are backed up before replacement, and the Codex loader is checked
 after writing.
-Use `--provider openrouter|go|zen|proxy` for a single catalog and
-`--max-input-price` or `--min-intelligence-score` for a different Pareto point.
-The score threshold defaults to `> 50/100`; the calibration population always
-contains all usable AA Intelligence values before provider prices are applied.
+
+Use `--provider openrouter|go|zen|proxy` to build one catalog, and
+`--max-input-price` or `--min-intelligence-score` to choose a different Pareto
+point. The default input-price limit is `$0.25/M` (strictly below). Increase it
+if you want more models. The calibrated Artificial Analysis Intelligence Index
+threshold defaults to strictly greater than `50/100`; the calibration
+population always includes all usable values before provider prices are
+applied. The raw index is scaled and normalized to `0..100` first.
 
 The Windows switcher toggles the root Codex provider between `openrouter` and
 the local `opencode-proxy` configuration:
@@ -200,9 +210,10 @@ wire_api = "responses"
 env_key = "OPENCODE_GO_API_KEY"
 ```
 
-The picker does not create or modify these provider tables.
+The picker does not create or modify these provider tables because it does not
+touch `config.toml`.
 
-## Schnittstellen
+## Endpoints
 
 | Client request              | Behavior                                                               |
 | --------------------------- | ---------------------------------------------------------------------- |
@@ -220,7 +231,7 @@ The compact `/responses/compact` and `/v1/responses/compact` aliases are also
 available. A model sent to an incompatible direct-format endpoint is rejected
 instead of being silently translated to another response shape.
 
-## Bedienung
+## Operations
 
 The main operations commands are:
 
@@ -253,7 +264,7 @@ Keep the listener on loopback. A non-loopback bind fails closed unless
 The caller token is never forwarded to an upstream provider. See
 [SECURITY.md](SECURITY.md) for credential and network guidance.
 
-## Katalog-Dateien
+## Catalog files
 
 ### Proxy
 
@@ -276,7 +287,7 @@ catalog rendering follows Codex's version-specific `ModelsResponse` shape; the
 `fetched_at`, `etag`, and `client_version` fields are proxy metadata, not a
 `ModelsCache` requirement.
 
-### Katalogpicker
+### Catalog picker
 
 The picker writes the four catalogs from the introduction plus
 `provider-catalog-audit.json` into the active Codex home. It uses:
@@ -305,7 +316,7 @@ population, selection reason, exact identity match, and raw index values. See
 [`tools/codex-picker/METHODOLOGY.md`](tools/codex-picker/METHODOLOGY.md) for
 the complete policy and CSV fields.
 
-## Sicherheit
+## Security
 
 This project is an independent, single-user adapter. It is not affiliated with
 OpenAI or OpenCode and does not provide pooled accounts, shared credentials,
@@ -333,7 +344,7 @@ The `codex debug models` output verifies the CLI catalog, not the Desktop
 renderer. Desktop picker behavior should be checked in the installed Codex
 version when changing catalog schemas.
 
-## Entwicklung
+## Development
 
 From the repository root:
 
@@ -351,13 +362,13 @@ wheel build on `main`, `master`, pull requests, and release tags. A Windows job
 parses the PowerShell scripts and runs temporary-config fixture tests. This
 repository's CI is defined in `.github/workflows/ci.yml`.
 
-## Lizenz
+## License
 
 MIT. See [LICENSE](LICENSE).
 
 ## Links
 
-[![CI](https://github.com/pskraemer11/opencode-go-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/pskraemer11/opencode-go-proxy/actions/workflows/ci.yml)
+[![CI](https://github.com/pskraemer11/codex-provider-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/pskraemer11/codex-provider-gateway/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Dependencies: zstandard](https://img.shields.io/badge/dependencies-zstandard-blue.svg)](#)

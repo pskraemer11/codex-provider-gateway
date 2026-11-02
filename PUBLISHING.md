@@ -1,7 +1,7 @@
 # Publishing
 
 This fork is published on GitHub as
-[`pskraemer11/opencode-go-proxy`](https://github.com/pskraemer11/opencode-go-proxy).
+[`pskraemer11/codex-provider-gateway`](https://github.com/pskraemer11/codex-provider-gateway).
 It began as a fork of
 [`kartikkabadi/opencode-go-proxy`](https://github.com/kartikkabadi/opencode-go-proxy);
 that repository is the upstream source, not this project's publishing target.
@@ -19,7 +19,7 @@ that repository is the upstream source, not this project's publishing target.
 ## Install
 
 ```bash
-uvx --from git+https://github.com/pskraemer11/opencode-go-proxy opencode-go-proxy
+uvx --from git+https://github.com/pskraemer11/codex-provider-gateway opencode-go-proxy
 ```
 
 No PyPI, no AUR. `uvx` from git is the only install path.
