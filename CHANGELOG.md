@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- Windows scheduled tasks now start the watchdog through `wscript.exe` and the
+  installed `hidden-run.vbs` instead of launching `pwsh.exe` directly. This
+  restores the console-flash fix for the five-minute health check while keeping
+  the current LocalAppData watchdog and autostart repair.
+- Codex CLI discovery now ignores a stale `OPENCODE_GO_PROXY_CODEX_BIN`
+  override, checks the standard Windows and standalone install locations, and
+  falls back to `codex` on `PATH`. Native catalog capture and app-tool capture
+  share the same resolution.
 - Config backups now reserve their filenames atomically and add a deterministic
   numeric suffix when two backups receive the same timestamp. This prevents a
   fast enable/disable sequence from overwriting an earlier backup on Windows.

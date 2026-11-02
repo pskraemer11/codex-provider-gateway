@@ -6,6 +6,8 @@
     in this repository checkout. Registration and removal are explicit actions;
     -WhatIf previews them without changing Task Scheduler. Replacing existing
     tasks requires -ReplaceExisting and is limited to the two documented task names.
+    Both tasks run through wscript.exe and hidden-run.vbs so Task Scheduler does
+    not flash a PowerShell console window on every health check.
     Use Get-Help or -? for PowerShell help; --help and -Help display this detailed help.
 .PARAMETER Port
     Loopback port passed to the watchdog task. Defaults to 8787.
@@ -77,13 +79,18 @@ if ($Uninstall) {
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $watchdogPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "watchdog-proxy.ps1"))
+$hiddenRunPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "hidden-run.vbs"))
 $installDirectory = Join-Path $env:LOCALAPPDATA "opencode-go-proxy\bin"
 $installedWatchdogPath = Join-Path $installDirectory "watchdog-proxy.ps1"
+$installedHiddenRunPath = Join-Path $installDirectory "hidden-run.vbs"
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "pyproject.toml") -PathType Leaf)) {
     throw "Run this installer from the checked-out opencode-go-proxy repository."
 }
 if (-not (Test-Path -LiteralPath $watchdogPath -PathType Leaf)) {
     throw "Proxy watchdog script is missing."
+}
+if (-not (Test-Path -LiteralPath $hiddenRunPath -PathType Leaf)) {
+    throw "Hidden console launcher is missing."
 }
 $existingTasks = @{}
 foreach ($taskName in $taskNames) {
@@ -100,9 +107,14 @@ $powerShell = Join-Path $PSHOME "pwsh.exe"
 if (-not (Test-Path -LiteralPath $powerShell -PathType Leaf)) {
     throw "The current PowerShell 7 executable was not found: $powerShell"
 }
-if ($PSCmdlet.ShouldProcess($installedWatchdogPath, "Install the watchdog script outside the checkout")) {
+$wscript = Join-Path $env:SystemRoot "System32\wscript.exe"
+if (-not (Test-Path -LiteralPath $wscript -PathType Leaf)) {
+    throw "Windows Script Host was not found: $wscript"
+}
+if ($PSCmdlet.ShouldProcess($installDirectory, "Install the watchdog and hidden launcher outside the checkout")) {
     New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
     Copy-Item -LiteralPath $watchdogPath -Destination $installedWatchdogPath -Force
+    Copy-Item -LiteralPath $hiddenRunPath -Destination $installedHiddenRunPath -Force
 }
 $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
@@ -115,9 +127,9 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -Hidden
-$taskArguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$installedWatchdogPath`" -ProjectRoot `"$repoRoot`" -Port $Port -Quiet"
+$taskArguments = "`"$installedHiddenRunPath`" `"$powerShell`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$installedWatchdogPath`" -ProjectRoot `"$repoRoot`" -Port $Port -Quiet"
 $action = New-ScheduledTaskAction `
-    -Execute $powerShell `
+    -Execute $wscript `
     -Argument $taskArguments `
     -WorkingDirectory $repoRoot
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $userId

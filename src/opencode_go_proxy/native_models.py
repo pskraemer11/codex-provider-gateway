@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,20 +47,56 @@ def native_models_path() -> str:
     return os.path.join(state_dir(), NATIVE_CATALOG_NAME)
 
 
-def resolve_codex_bin() -> str:
-    """Codex CLI path: env override, then standalone install, then app bundle."""
-    env = os.environ.get(CODEX_BIN_ENV)
-    if env:
-        return env
-    candidates = (
+def _existing_file(path: str | None) -> str | None:
+    """Return an expanded existing file path, or None for a stale/missing value."""
+    if not path:
+        return None
+    expanded = os.path.expanduser(os.path.expandvars(path))
+    return expanded if os.path.isfile(expanded) else None
+
+
+def _codex_bin_candidates() -> tuple[str, ...]:
+    suffix = ".exe" if os.name == "nt" else ""
+    candidates = [
         os.path.join(
-            os.path.expanduser("~"), ".codex", "packages", "standalone", "current", "bin", "codex"
+            os.path.expanduser("~"),
+            ".codex",
+            "packages",
+            "standalone",
+            "current",
+            "bin",
+            f"codex{suffix}",
         ),
         "/Applications/ChatGPT.app/Contents/Resources/codex",
-    )
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
+    ]
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(
+            os.path.join(local_app_data, "Programs", "OpenAI", "Codex", "bin", f"codex{suffix}")
+        )
+    return tuple(candidates)
+
+
+def find_codex_bin() -> str | None:
+    """Codex CLI path: valid env override, known installs, then PATH."""
+    env = os.environ.get(CODEX_BIN_ENV)
+    if env:
+        configured = _existing_file(env)
+        if configured:
+            return configured
+        trace("native_capture.codex_bin_override_ignored", reason="path_not_found")
+    for candidate in _codex_bin_candidates():
+        configured = _existing_file(candidate)
+        if configured:
+            return configured
+    return shutil.which("codex")
+
+
+def resolve_codex_bin() -> str:
+    """Resolve Codex or raise a capture error when no executable is available."""
+    bin_path = find_codex_bin()
+    if bin_path:
+        return bin_path
     raise NativeCaptureError(f"codex CLI not found; set {CODEX_BIN_ENV} to its path")
 
 

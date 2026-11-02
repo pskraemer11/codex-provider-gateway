@@ -129,7 +129,8 @@ opencode-go-proxy config disable
 
 On Windows, the optional autostart and health watchdog live in
 `tools/codex-picker/`. The installer copies the watchdog into the user's local
-app-data directory and the watchdog prefers the installed
+app-data directory together with a `wscript.exe` launcher that prevents console
+flashing on scheduled checks. The watchdog prefers the installed
 `opencode-go-proxy` command. `uv run` remains only a development fallback when
 the command is not installed. Preview Task Scheduler registration before
 enabling it:

@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .meter import state_dir
+from .native_models import find_codex_bin
 
 Json = dict[str, Any]
 
@@ -137,22 +138,9 @@ def _codex_version(binary: str) -> str | None:
     return version
 
 
-CODEX_BIN_ENV = "OPENCODE_GO_PROXY_CODEX_BIN"
-CODEX_FALLBACK_PATHS = (
-    os.path.join(os.path.expanduser("~"), ".codex", "packages", "standalone", "current", "bin", "codex"),
-    "/Applications/ChatGPT.app/Contents/Resources/codex",
-)
-
-
 def _resolve_codex_bin() -> str | None:
-    """Codex CLI path: env override, then standalone install, then app bundle."""
-    env = os.environ.get(CODEX_BIN_ENV)
-    if env:
-        return env
-    for candidate in CODEX_FALLBACK_PATHS:
-        if os.path.exists(candidate):
-            return candidate
-    return None
+    """Resolve the same Codex executable used by the native catalog capture."""
+    return find_codex_bin()
 
 
 def capture_codex_app_tools() -> list[Json] | None:

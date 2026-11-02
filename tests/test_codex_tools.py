@@ -2,12 +2,13 @@
 
 import json
 import os
+import shutil
 import threading
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-from opencode_go_proxy import codex_tools
+from opencode_go_proxy import codex_tools, native_models
 from opencode_go_proxy.app import ProxyConfig, ResponsesProxyHandler
 from opencode_go_proxy.codex_tools import (
     capture_codex_app_tools,
@@ -216,8 +217,17 @@ class TestCapture:
 
     def test_capture_missing_binary_returns_none(self) -> None:
         with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_CODEX_BIN": ""}):
-            tools = capture_codex_app_tools()
+            with mock.patch.object(shutil, "which", return_value=None):
+                tools = capture_codex_app_tools()
         assert tools is None
+
+    def test_capture_invalid_override_falls_back_to_path_codex(self, fake_codex_bin) -> None:
+        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_CODEX_BIN": "/nonexistent/codex-bin"}):
+            with mock.patch.object(native_models, "_codex_bin_candidates", return_value=()):
+                with mock.patch.object(shutil, "which", return_value=fake_codex_bin):
+                    tools = capture_codex_app_tools()
+        assert tools is not None
+        assert snapshot_names(tools) == {"codex_app__create_thread", "codex_app__list_threads"}
 
     def test_capture_excludes_plugin_management(self, fake_codex_bin) -> None:
         with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_CODEX_BIN": fake_codex_bin}):

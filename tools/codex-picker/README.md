@@ -85,7 +85,9 @@ rate-limited; its provenance is recorded in the audit JSON.
 when needed. It prefers the persistently installed `opencode-go-proxy` command
 and uses `uv run` from this checkout only as a development fallback. The
 installer copies the watchdog into `%LOCALAPPDATA%\opencode-go-proxy\bin` and
-configures a hidden current-user logon task plus a five-minute health watchdog.
+configures a current-user logon task plus a five-minute health watchdog. Both
+tasks run through `wscript.exe` and the installed `hidden-run.vbs`, which starts
+PowerShell with a hidden window and prevents a console flash on each check.
 The proxy runs separately from Codex and remains available after Codex closes.
 Switching to the proxy with `switch-provider.ps1` also waits for `/health` before
 changing Codex configuration. The switcher validates that the target provider

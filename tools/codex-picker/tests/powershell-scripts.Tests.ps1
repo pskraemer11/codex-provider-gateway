@@ -18,6 +18,15 @@ foreach ($script in $scripts) {
     }
 }
 
+$hiddenRun = Join-Path $pickerRoot "hidden-run.vbs"
+if (-not (Test-Path -LiteralPath $hiddenRun -PathType Leaf)) {
+    throw "Hidden console launcher is missing: $hiddenRun"
+}
+$installerText = Get-Content -LiteralPath (Join-Path $pickerRoot "install-proxy-autostart.ps1") -Raw
+if ($installerText -notmatch 'wscript\.exe' -or $installerText -notmatch 'hidden-run\.vbs') {
+    throw "Autostart installer does not route scheduled tasks through the hidden console launcher."
+}
+
 $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("opencode-go-picker-tests-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporary | Out-Null
 try {

@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from unittest import mock
 
 from opencode_go_proxy import catalog, native_models
@@ -128,12 +129,25 @@ def test_capture_writes_and_prints_target(tmp_path, capsys) -> None:
 
 
 def test_missing_bin_errors_cleanly(capsys) -> None:
-    with mock.patch.dict(
-        os.environ, {native_models.CODEX_BIN_ENV: "/nonexistent/codex-bin"}
-    ):
-        rc = native_models.native_capture_cmd(["--dry-run"])
+    with mock.patch.object(native_models, "_codex_bin_candidates", return_value=()):
+        with mock.patch.object(shutil, "which", return_value=None):
+            with mock.patch.dict(
+                os.environ, {native_models.CODEX_BIN_ENV: "/nonexistent/codex-bin"}
+            ):
+                rc = native_models.native_capture_cmd(["--dry-run"])
     assert rc == 1
     assert "error" in capsys.readouterr().err
+
+
+def test_invalid_override_falls_back_to_path_codex(tmp_path, monkeypatch) -> None:
+    codex_bin = _write_fake_codex_bin(tmp_path / "codex")
+    monkeypatch.setenv(native_models.CODEX_BIN_ENV, "/nonexistent/codex-bin")
+    monkeypatch.setattr(native_models, "_codex_bin_candidates", lambda: ())
+    monkeypatch.setattr(shutil, "which", lambda command: codex_bin if command == "codex" else None)
+
+    snapshot = native_models.capture_native_models(dry_run=True)
+
+    assert [model["slug"] for model in snapshot["models"]] == ["gpt-5.6-luna", "gpt-5.6-terra"]
 
 
 def test_missing_capture_loads_empty() -> None:
