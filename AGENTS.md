@@ -12,7 +12,7 @@ git config core.hooksPath .githooks
 ```
 
 - `pre-commit` runs Ruff and the full suite, but only when a
-  staged path starts with `src/`, `tests/`, `contrib/` or `scripts/`. The
+  staged path starts with `src/`, `tests/`, `contrib/`, `scripts/` or `tools/`. The
   prefix check decides *whether* the full suite runs, never *which* tests:
   coverage stays complete, so it cannot hide a break. Commit `f9d0dfa` changed
   only `src/opencode_go_proxy/go_models.py`; a changed-file test selection
