@@ -17,6 +17,16 @@
 
 ### Fixed
 
+- The Windows watchdog now probes the installed `opencode-go-proxy` launcher
+  before using it. A stale uv-tool shim fails with
+  `ModuleNotFoundError: No module named 'opencode_go_proxy'`; the watchdog
+  records that and falls back to `uv run` from the checkout instead of waiting
+  60 seconds for a proxy that never starts. This was the cause of the Codex
+  Desktop "Reconnection - waiting for network" loop after a reboot or a stopped
+  proxy.
+- The duplicate-port guard now ignores orphaned TCP entries whose owning process
+  no longer exists (PID 0, `TIME_WAIT`), so a restart is not blocked by stale
+  sockets left behind by the previous proxy process.
 - `--help` now states the actual behaviour of three options: `--template`
   falls back to `codex debug models --bundled` (which bypasses
   `model_catalog_json`), `--no-verify` only applies when writing into

@@ -18,9 +18,12 @@
 .PARAMETER ProjectRoot
     Repository checkout used only for the uv fallback when no installed proxy
     command is available. Defaults to this script's checkout location.
-.PARAMETER UnboundArguments
-    Reserved for the -Help/--help compatibility form. Do not specify directly;
-    all other unrecognized arguments are rejected.
+.PARAMETER Help
+    Display this script's detailed help and exit. Use -?, -Help, or --help.
+.PARAMETER WhatIf
+    Preview a required proxy start without launching the process.
+.PARAMETER Confirm
+    Prompt before starting the proxy when confirmation is requested.
 .EXAMPLE
     .\watchdog-proxy.ps1
 
@@ -38,23 +41,35 @@
     Only binds the proxy to 127.0.0.1.
 #>
 #Requires -Version 7.0
-[CmdletBinding(SupportsShouldProcess = $true)]
+[CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true)]
 param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8787,
     [switch]$Quiet,
     [string]$Executable,
     [string]$ProjectRoot,
+    [switch]$Help,
     [Parameter(ValueFromRemainingArguments = $true, DontShow = $true)]
-    [string[]]$UnboundArguments
+    [string[]]$RemainingArguments
 )
 
-if ($UnboundArguments) {
-    if ($UnboundArguments.Count -eq 1 -and $UnboundArguments[0] -in @("--help", "-Help")) {
-        Get-Help -Name $PSCommandPath -Detailed
-        return
+function Show-DetailedHelp {
+    $help = Get-Help -Name $PSCommandPath -Detailed
+    foreach ($item in @($help.syntax.syntaxItem)) {
+        $item.parameter = @($item.parameter | Where-Object { $_.name -ne "RemainingArguments" })
     }
-    throw "Unrecognized argument(s): $($UnboundArguments -join ', '). Use -? or --help for help."
+    $help.parameters.parameter = @(
+        $help.parameters.parameter | Where-Object { $_.name -ne "RemainingArguments" }
+    )
+    $help | Out-String -Width 140
+}
+
+if ($Help -or ($RemainingArguments.Count -eq 1 -and $RemainingArguments[0] -eq "--help")) {
+    Show-DetailedHelp
+    return
+}
+if ($RemainingArguments) {
+    throw "Unrecognized argument(s): $($RemainingArguments -join ', '). Use -?, -Help, or --help for help."
 }
 
 $ErrorActionPreference = "Stop"
@@ -112,6 +127,25 @@ function Get-UvPath {
     return $null
 }
 
+function Test-ProxyCommand {
+    param([Parameter(Mandatory)][string]$FilePath)
+
+    # A stale launcher (for example a uv tool shim whose environment was
+    # removed) fails with ModuleNotFoundError. Probe it once so the watchdog
+    # can fall back to the checkout instead of waiting 60 seconds for nothing.
+    try {
+        $output = (& $FilePath --help 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -eq 0) { return $true }
+        $detail = ($output -split "`r?`n" | Where-Object { $_ } | Select-Object -Last 1)
+        Write-Status "Proxy command self-check failed ($FilePath): $detail"
+        return $false
+    }
+    catch {
+        Write-Status "Proxy command self-check failed ($FilePath): $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Get-ProxyLaunch {
     if ($Executable) {
         $explicit = [System.IO.Path]::GetFullPath($Executable)
@@ -126,34 +160,34 @@ function Get-ProxyLaunch {
         }
     }
 
+    $candidates = @()
     $command = Get-Command opencode-go-proxy -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
-    if ($command) {
-        return [pscustomobject]@{
-            FilePath = [string]$command.Source
-            Arguments = @()
-            WorkingDirectory = (Get-Location).Path
-            Mode = "installed"
-        }
-    }
-
+    if ($command) { $candidates += [string]$command.Source }
     $userProfile = [Environment]::GetFolderPath("UserProfile")
     $installed = Join-Path $userProfile ".local\bin\opencode-go-proxy.exe"
-    if (Test-Path -LiteralPath $installed -PathType Leaf) {
-        return [pscustomobject]@{
-            FilePath = $installed
-            Arguments = @()
-            WorkingDirectory = (Get-Location).Path
-            Mode = "installed"
+    if (Test-Path -LiteralPath $installed -PathType Leaf) { $candidates += $installed }
+
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        if (Test-ProxyCommand $candidate) {
+            return [pscustomobject]@{
+                FilePath = $candidate
+                Arguments = @()
+                WorkingDirectory = (Get-Location).Path
+                Mode = "installed"
+            }
         }
+    }
+    if ($candidates) {
+        Write-Status "Falling back to the checkout: no installed proxy command passed its self-check."
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "pyproject.toml") -PathType Leaf)) {
-        throw "No installed proxy command was found and the repository checkout is incomplete."
+        throw "No usable installed proxy command was found and the repository checkout is incomplete."
     }
     $uv = Get-UvPath
     if (-not $uv) {
-        throw "No installed proxy command or uv was found."
+        throw "No usable installed proxy command or uv was found."
     }
     return [pscustomobject]@{
         FilePath = $uv
@@ -177,6 +211,10 @@ catch {
 }
 
 $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.OwningProcess -gt 0 -and
+        (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue)
+    } |
     Select-Object -First 1
 if ($listener) {
     Write-Status "Port $Port is listening, but /health did not answer; refusing to start a duplicate."
