@@ -154,6 +154,11 @@
 
 ### Changed
 
+- Repository housekeeping: the stale `origin/main` tracking on
+  `feat/certify-documented-go-models` was cleared with
+  `git branch --unset-upstream`, so feature branches no longer point at the
+  read-only upstream. `AGENTS.md` records `fork` as the only push target and
+  `origin` as the upstream reference.
 - The proxy catalog now orders all `opencode-go/` routes before all `zen/`
   routes; within each group the existing score/price order applies. Codex
   renders the picker from the catalog `priority` field, so the three Go models
