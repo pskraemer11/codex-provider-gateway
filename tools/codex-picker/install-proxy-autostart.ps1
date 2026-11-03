@@ -17,9 +17,12 @@
 .PARAMETER Uninstall
     Remove only those two named tasks, if present. Cannot be combined with
     -ReplaceExisting.
-.PARAMETER UnboundArguments
-    Reserved for the -Help/--help compatibility form. Do not specify directly;
-    all other unrecognized arguments are rejected.
+.PARAMETER Help
+    Display this script's detailed help and exit. Use -?, -Help, or --help.
+.PARAMETER WhatIf
+    Preview task installation or removal without changing Task Scheduler.
+.PARAMETER Confirm
+    Prompt before each task installation, replacement, or removal.
 .EXAMPLE
     .\install-proxy-autostart.ps1 -WhatIf
 
@@ -41,22 +44,34 @@
     installed proxy command and uses uv only as a checkout fallback.
 #>
 #Requires -Version 7.0
-[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
+[CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
 param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8787,
     [switch]$ReplaceExisting,
     [switch]$Uninstall,
+    [switch]$Help,
     [Parameter(ValueFromRemainingArguments = $true, DontShow = $true)]
-    [string[]]$UnboundArguments
+    [string[]]$RemainingArguments
 )
 
-if ($UnboundArguments) {
-    if ($UnboundArguments.Count -eq 1 -and $UnboundArguments[0] -in @("--help", "-Help")) {
-        Get-Help -Name $PSCommandPath -Detailed
-        return
+function Show-DetailedHelp {
+    $help = Get-Help -Name $PSCommandPath -Detailed
+    foreach ($item in @($help.syntax.syntaxItem)) {
+        $item.parameter = @($item.parameter | Where-Object { $_.name -ne "RemainingArguments" })
     }
-    throw "Unrecognized argument(s): $($UnboundArguments -join ', '). Use -? or --help for help."
+    $help.parameters.parameter = @(
+        $help.parameters.parameter | Where-Object { $_.name -ne "RemainingArguments" }
+    )
+    $help | Out-String -Width 140
+}
+
+if ($Help -or ($RemainingArguments.Count -eq 1 -and $RemainingArguments[0] -eq "--help")) {
+    Show-DetailedHelp
+    return
+}
+if ($RemainingArguments) {
+    throw "Unrecognized argument(s): $($RemainingArguments -join ', '). Use -?, -Help, or --help for help."
 }
 
 $ErrorActionPreference = "Stop"

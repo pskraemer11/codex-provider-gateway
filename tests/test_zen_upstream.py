@@ -33,6 +33,9 @@ FIXTURE_FAMILIES = {
     "gpt-5.6": "openai_responses",
     "grok-4": "openai_responses",
     "deepseek-v4-flash": "openai_chat",
+    "deepseek-v4.1-flash-free": "openai_chat",
+    "glm-5.3-flash-free": "openai_chat",
+    "mimo-v2.6-flash-free": "openai_chat",
     "glm-5": "openai_chat",
 }
 
@@ -752,7 +755,17 @@ class _FakeZenUpstream(BaseHTTPRequestHandler):
 
 
 class TestAppDispatch:
-    def test_zen_request_never_reaches_go_path(self, tmp_path) -> None:
+    @pytest.mark.parametrize(
+        ("model", "expected_upstream_model"),
+        [
+            ("zen/deepseek-v4-flash", "deepseek-v4-flash"),
+            ("zen/deepseek-v4.1-flash-free", "deepseek-v4.1-flash-free"),
+            ("deepseek-v4.1-flash-free", "deepseek-v4.1-flash-free"),
+            ("glm-5.3-flash-free", "glm-5.3-flash-free"),
+            ("mimo-v2.6-flash-free", "mimo-v2.6-flash-free"),
+        ],
+    )
+    def test_zen_request_never_reaches_go_path(self, tmp_path, model, expected_upstream_model) -> None:
         """End to end: a zen-routed /v1/responses stream is served by the zen
         client and the opencode-go upstream sees zero traffic."""
         state = tmp_path / "state"
@@ -761,7 +774,12 @@ class TestAppDispatch:
             json.dumps(
                 {
                     "fetched_at": "2026-08-14T00:00:00Z",
-                    "models": [{"id": "deepseek-v4-flash"}],
+                    "models": [
+                        {"id": "deepseek-v4-flash"},
+                        {"id": "deepseek-v4.1-flash-free"},
+                        {"id": "glm-5.3-flash-free"},
+                        {"id": "mimo-v2.6-flash-free"},
+                    ],
                 }
             )
         )
@@ -793,7 +811,7 @@ class TestAppDispatch:
 
                 conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
                 payload = json.dumps({
-                    "model": "zen/deepseek-v4-flash",
+                    "model": model,
                     "input": "hello",
                     "stream": True,
                 })
@@ -802,7 +820,7 @@ class TestAppDispatch:
                 streamed = resp.read().decode("utf-8")
                 conn.close()
 
-            assert resp.status == 200
+            assert resp.status == 200, streamed
             assert "zen-answer" in streamed
             assert "response.completed" in streamed
             # The zen upstream received the translated chat request; the
@@ -815,7 +833,7 @@ class TestAppDispatch:
             assert not go_records, "opencode-go upstream must never see a zen request"
             assert zen_records[0]["path"] == "/zen/v1/chat/completions"
             sent = json.loads(zen_records[0]["body"])
-            assert sent["model"] == "deepseek-v4-flash"
+            assert sent["model"] == expected_upstream_model
 
             records = []
             try:

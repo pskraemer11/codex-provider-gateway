@@ -13,8 +13,8 @@ family's SSE stream is translated back to Responses events, so the Codex app
 sees one uniform Responses stream no matter which surface the model speaks.
 The responses family is the exception: it is relayed verbatim. All zen turns
 meter with ``provider="zen"`` so they never count against the opencode-go
-quota. Zen requests are reachable only through the ``zen/`` model prefix; a
-bare id that happens to match a zen model stays on the opencode-go path.
+quota. Explicit ``zen/`` routes and bare Zen-only slugs reach this module;
+bare Go/Zen collisions are resolved to Go by the HTTP dispatcher.
 """
 
 from __future__ import annotations
@@ -103,17 +103,21 @@ def bare_zen_id(slug: str) -> str:
     return slug
 
 
-def ensure_zen_slug(model: str) -> None:
-    """Refuse to route a model without the zen prefix through the zen client.
+def ensure_zen_slug(model: str, *, allow_bare: bool = False) -> None:
+    """Validate a Zen-routed id, optionally allowing a captured bare id.
 
-    A bare slug that happens to match a zen id must stay on the opencode-go
-    path; if one arrives here the caller routed wrong.
+    The HTTP dispatcher resolves bare Go/Zen collisions before calling the
+    Zen client. Its Zen-only bare ids are valid here when ``allow_bare`` is
+    explicitly enabled by the routed handler.
     """
-    if not model.startswith(ZEN_PREFIX):
-        raise ProxyError(
-            HTTPStatus.BAD_REQUEST,
-            f"zen routing requires the '{ZEN_PREFIX}' model prefix (got {model!r})",
-        )
+    if model.startswith(ZEN_PREFIX):
+        return
+    if allow_bare and model in zen_model_ids():
+        return
+    raise ProxyError(
+        HTTPStatus.BAD_REQUEST,
+        f"zen routing requires the '{ZEN_PREFIX}' prefix or a captured bare Zen id (got {model!r})",
+    )
 
 
 def zen_family_for(bare_id: str) -> str:
@@ -1844,7 +1848,7 @@ def handle_family_responses_request(
 def handle_zen_responses_request(handler: Any, payload: Json, config: ProxyConfig, request_id: str) -> None:
     """Serve a /v1/responses request for a zen-routed model."""
     model = payload.get("model") or DEFAULT_MODEL
-    ensure_zen_slug(model)
+    ensure_zen_slug(model, allow_bare=True)
     bare_id = bare_zen_id(model)
     handle_family_responses_request(
         handler,
@@ -1870,7 +1874,7 @@ def handle_zen_chat_request(handler: Any, payload: Json, config: ProxyConfig, re
     """
     started = time.time()
     model = payload.get("model") or DEFAULT_MODEL
-    ensure_zen_slug(model)
+    ensure_zen_slug(model, allow_bare=True)
     bare_id = bare_zen_id(model)
     family = zen_family_for(bare_id)
     if family != "openai_chat":

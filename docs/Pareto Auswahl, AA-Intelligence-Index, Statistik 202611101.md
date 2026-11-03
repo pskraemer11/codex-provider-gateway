@@ -63,7 +63,7 @@ Variante A liefert die intuitivere „beste günstige Modelle bis 100“-Skala, 
 Variante B ist über den Preisbereich hinweg vergleichbarer und stabiler, macht die bisherige 70/100-Grenze jedoch bedeutungslos.
 ---
 
-In Variante B lautet die vollständige Population:
+In *Variante B* lautet die vollständige Population:
 
 Minimum: 1,8
 Maximum: 59,4

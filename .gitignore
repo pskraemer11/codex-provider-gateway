@@ -8,4 +8,5 @@ build/
 *.egg-info/
 tmp/
 .scratch/
-tools/codex-picker/data/artificial-analysis-live-snapshot.json
+staging/
+tools/codex-picker/data/
