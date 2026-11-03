@@ -2,6 +2,24 @@
 
 Agent guidance for this repository. Applies to all agents working here.
 
+## Remotes: fork is the only push target
+
+This checkout has two remotes with different roles:
+
+| Remote | URL | Role |
+| --- | --- | --- |
+| `fork` | `pskraemer11/codex-provider-gateway` | The user's fork. **The only push target.** `main` tracks `fork/main`. |
+| `origin` | `kartikkabadi/opencode-go-proxy` | Upstream read-only reference. The user does not participate there; never push to it. |
+
+- Push with `git push fork main` (or plain `git push`, because `main` tracks
+  `fork/main`). Do not push to `origin` and do not open pull requests against it.
+- Feature branches must track `fork/*`, not `origin/*`. If an old branch still
+  shows `[origin/main]` in `git branch -vv`, clear it with
+  `git branch --unset-upstream <branch>` before working on it.
+- The update check and install source use the fork as well (`RELEASE_REPO` in
+  `updates.py`, `_UPDATE_SOURCE_URL` in `ops.py`). Keep fork references
+  consistent when renaming or moving the repository.
+
 ## Git hooks (test gate)
 
 `.githooks/` holds a local test gate. It is not part of upstream and is
