@@ -17,6 +17,11 @@
 
 ### Fixed
 
+- `--help` now states the actual behaviour of three options: `--template`
+  falls back to `codex debug models --bundled` (which bypasses
+  `model_catalog_json`), `--no-verify` only applies when writing into
+  `CODEX_HOME`, and `--allow-cached-proxy` permits the cached proxy catalog
+  without disabling the live/cache consistency check.
 - Repository-local Ruff configuration and version pins keep local, hook, and
   CI checks aligned instead of inheriting a parent workspace configuration; test
   import ordering is normalized under the new project root.

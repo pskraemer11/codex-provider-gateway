@@ -1623,7 +1623,11 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
     parser.add_argument(
         "--template",
         type=Path,
-        help="Codex-Native-Katalog als Template; Standard: CODEX_HOME/.tmp/bundled-catalog.json, sonst codex debug models",
+        help=(
+            "Codex-Native-Katalog als Formvorlage; Standard: "
+            "CODEX_HOME/.tmp/bundled-catalog.json, sonst "
+            "`codex debug models --bundled` (umgeht model_catalog_json)"
+        ),
     )
     parser.add_argument(
         "--proxy-url",
@@ -1636,11 +1640,22 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
         help="Codex-CLI fuer den Template-Fallback (Standard: OPENCODE_GO_PROXY_CODEX_BIN oder codex)",
     )
     parser.add_argument("--no-backup", action="store_true", help="Vorhandene Ausgaben nicht sichern")
-    parser.add_argument("--no-verify", action="store_true", help="codex debug models nach dem Schreiben ueberspringen")
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help=(
+            "Loader-Pruefung `codex debug models` nach dem Schreiben "
+            "ueberspringen; laeuft nur bei Ausgabe nach CODEX_HOME"
+        ),
+    )
     parser.add_argument(
         "--allow-cached-proxy",
         action="store_true",
-        help="erlaubt Pruefen oder Schreiben mit dem zuletzt gespeicherten Proxy-Katalog",
+        help=(
+            "Pruefen/Schreiben mit dem zuletzt gespeicherten Proxy-Katalog "
+            "erlauben, wenn der Proxy nicht erreichbar ist; die "
+            "Live-/Cache-Konsistenzpruefung bleibt aktiv"
+        ),
     )
     args = parser.parse_args()
     if args.out and args.provider == "all":
