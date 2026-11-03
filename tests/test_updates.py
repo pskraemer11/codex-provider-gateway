@@ -15,7 +15,7 @@ from opencode_go_proxy import __version__, updates
 _v = [int(x) for x in __version__.split(".")]
 _NEWER = f"{_v[0]}.{_v[1]}.{_v[2] + 1}"
 _NEWER_TAG = f"v{_NEWER}"
-RELEASE_URL = f"https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/{_NEWER_TAG}"
+RELEASE_URL = f"https://github.com/pskraemer11/codex-provider-gateway/releases/tag/{_NEWER_TAG}"
 
 
 class MockResp:
@@ -82,12 +82,27 @@ class TestCheckForUpdates:
         assert not info.latest.startswith("v")
 
     def test_git_api_base_comes_from_env(self) -> None:
-        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_GITHUB_API": "https://api.example.test"}, clear=False), \
-             mock.patch(_urlopen_path(), return_value=_release(_NEWER_TAG)) as urlopen:
+        with (
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_GITHUB_API": "https://api.example.test"}, clear=False),
+            mock.patch(_urlopen_path(), return_value=_release(_NEWER_TAG)) as urlopen,
+        ):
             updates.check_for_updates(force=True)
         request = urlopen.call_args.args[0]
-        assert request.full_url == "https://api.example.test/repos/kartikkabadi/opencode-go-proxy/releases/latest"
+        assert request.full_url == ("https://api.example.test/repos/pskraemer11/codex-provider-gateway/releases/latest")
         assert request.headers.get("User-agent") == f"opencode-go-proxy/{__version__}"
+
+    def test_tag_fallback_when_the_fork_has_no_release(self) -> None:
+        def urlopen(request, timeout=0):
+            if request.full_url.endswith("/releases/latest"):
+                raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, io.BytesIO(b""))
+            return MockResp(json.dumps([{"name": _NEWER_TAG}]).encode())
+
+        with mock.patch(_urlopen_path(), side_effect=urlopen):
+            info = updates.check_for_updates(force=True)
+        assert info.latest == _NEWER
+        assert info.available is True
+        assert info.release_url == RELEASE_URL
+        assert info.error is None
 
 
 class TestTtlCache:
@@ -116,8 +131,10 @@ class TestTtlCache:
             updates.check_for_updates(force=True)
         future = time.time() + 60
         os.utime(updates._cache_path(), (future, future))
-        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_UPDATE_TTL_HOURS": "0"}, clear=False), \
-             mock.patch(_urlopen_path(), return_value=_release("v0.4.1")):
+        with (
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_UPDATE_TTL_HOURS": "0"}, clear=False),
+            mock.patch(_urlopen_path(), return_value=_release("v0.4.1")),
+        ):
             info = updates.check_for_updates()
         assert info.latest == "0.4.1"
 
@@ -129,8 +146,10 @@ class TestTtlCache:
         assert info.latest == "0.4.1"
 
     def test_expired_ttl_rechecks(self) -> None:
-        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_UPDATE_TTL_HOURS": "0"}, clear=False), \
-             mock.patch(_urlopen_path(), side_effect=[_release(_NEWER_TAG), _release("v0.4.1")]):
+        with (
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_UPDATE_TTL_HOURS": "0"}, clear=False),
+            mock.patch(_urlopen_path(), side_effect=[_release(_NEWER_TAG), _release("v0.4.1")]),
+        ):
             first = updates.check_for_updates(force=True)
             second = updates.check_for_updates()
         assert first.latest == _NEWER
@@ -171,8 +190,11 @@ class TestErrorPaths:
         import io
 
         error = urllib.error.HTTPError(
-            "https://api.github.com/repos/kartikkabadi/opencode-go-proxy/releases/latest",
-            403, "rate limited", {}, io.BytesIO(b"")
+            "https://api.github.com/repos/pskraemer11/codex-provider-gateway/releases/latest",
+            403,
+            "rate limited",
+            {},
+            io.BytesIO(b""),
         )
         with mock.patch(_urlopen_path(), side_effect=error):
             info = updates.check_for_updates(force=True)
@@ -200,11 +222,7 @@ class TestVersionPayload:
 
     def test_git_commit_is_short_hash_or_none(self) -> None:
         commit = updates._git_commit()
-        assert commit is None or (
-            len(commit) == 8 and all(c in "0123456789abcdef" for c in commit)
-        )
-
-
+        assert commit is None or (len(commit) == 8 and all(c in "0123456789abcdef" for c in commit))
 
 
 class _FakeHandler(io.BytesIO):

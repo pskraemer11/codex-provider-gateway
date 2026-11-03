@@ -17,8 +17,8 @@ import pytest
 import opencode_go_proxy
 from opencode_go_proxy import ops
 
-ONE_LINER = "uvx --from git+https://github.com/kartikkabadi/opencode-go-proxy@v0.4.6 opencode-go-proxy"
-RELEASE_URL = "https://github.com/kartikkabadi/opencode-go-proxy/releases/tag/v0.4.6"
+ONE_LINER = "uvx --from git+https://github.com/pskraemer11/codex-provider-gateway@v0.4.6 opencode-go-proxy"
+RELEASE_URL = "https://github.com/pskraemer11/codex-provider-gateway/releases/tag/v0.4.6"
 
 
 class FakeUpdateInfo:
@@ -44,6 +44,7 @@ def _install_fake_updates(monkeypatch: pytest.MonkeyPatch, info: FakeUpdateInfo 
     module.UpdateInfo = FakeUpdateInfo
     current_info = info if info is not None else FakeUpdateInfo()
     calls: list = []
+
     def check_for_updates(force: bool = False, timeout: int = 8) -> FakeUpdateInfo:
         calls.append(("check", force, timeout))
         return current_info
@@ -154,7 +155,7 @@ def test_apply_uv_tool_runs_exact_install_argv(monkeypatch, capsys):
         "install",
         "--force",
         "--from",
-        "git+https://github.com/kartikkabadi/opencode-go-proxy@v0.4.6",
+        "git+https://github.com/pskraemer11/codex-provider-gateway@v0.4.6",
         "opencode-go-proxy",
     ]
     assert "installed opencode-go-proxy 0.4.6" in capsys.readouterr().out

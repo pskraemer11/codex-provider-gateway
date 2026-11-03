@@ -70,8 +70,7 @@ class TestService:
         assert not c.ok
 
     def test_down(self) -> None:
-        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen",
-                        side_effect=urllib.error.URLError("refused")):
+        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", side_effect=urllib.error.URLError("refused")):
             c = ops.check_service("http://127.0.0.1:1/health")
         assert not c.ok
 
@@ -84,8 +83,7 @@ class TestPort:
         assert "owned by proxy" in c.detail
 
     def test_free(self) -> None:
-        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen",
-                        side_effect=urllib.error.URLError("refused")):
+        with mock.patch("opencode_go_proxy.ops.urllib.request.urlopen", side_effect=urllib.error.URLError("refused")):
             c = ops.check_port("http://127.0.0.1:1/health")
         assert c.ok
         assert "free" in c.detail
@@ -167,12 +165,24 @@ class TestCatalog:
 
 
 class TestDoctor:
-    _CHECK_NAMES = ("check_api_key", "check_config_file", "check_config", "check_catalog",
-                    "check_port", "check_service", "check_meter", "check_logs", "check_upstream")
+    _CHECK_NAMES = (
+        "check_api_key",
+        "check_config_file",
+        "check_config",
+        "check_provider_auth",
+        "check_catalog",
+        "check_port",
+        "check_service",
+        "check_meter",
+        "check_logs",
+        "check_upstream",
+    )
 
     def _all_ok(self) -> list:
-        return [mock.patch.object(ops, name, return_value=ops.Check(name, "ok", "fine")).start()
-                for name in self._CHECK_NAMES]
+        return [
+            mock.patch.object(ops, name, return_value=ops.Check(name, "ok", "fine")).start()
+            for name in self._CHECK_NAMES
+        ]
 
     def test_json_all_ok(self) -> None:
         self._all_ok()
@@ -182,28 +192,32 @@ class TestDoctor:
             mock.patch.stopall()
 
     def test_json_failure(self) -> None:
-        with mock.patch.object(ops, "check_api_key", return_value=ops.Check("api key", "fail", "missing", fix="fix it")), \
-             mock.patch.object(ops, "check_service", return_value=ops.Check("service", "ok", "health 200")), \
-             mock.patch.object(ops, "check_meter", return_value=ops.Check("meter", "ok", "w")), \
-             mock.patch.object(ops, "check_logs", return_value=ops.Check("logs", "ok", "l")), \
-             mock.patch.object(ops, "check_config", return_value=ops.Check("config", "ok", "c")), \
-             mock.patch.object(ops, "check_config_file", return_value=ops.Check("config file", "ok", "cf")), \
-             mock.patch.object(ops, "check_catalog", return_value=ops.Check("catalog", "ok", "cat")), \
-             mock.patch.object(ops, "check_port", return_value=ops.Check("port", "ok", "p")), \
-             mock.patch.object(ops, "check_upstream", return_value=ops.Check("upstream", "ok", "u")):
+        with (
+            mock.patch.object(ops, "check_api_key", return_value=ops.Check("api key", "fail", "missing", fix="fix it")),
+            mock.patch.object(ops, "check_service", return_value=ops.Check("service", "ok", "health 200")),
+            mock.patch.object(ops, "check_meter", return_value=ops.Check("meter", "ok", "w")),
+            mock.patch.object(ops, "check_logs", return_value=ops.Check("logs", "ok", "l")),
+            mock.patch.object(ops, "check_config", return_value=ops.Check("config", "ok", "c")),
+            mock.patch.object(ops, "check_config_file", return_value=ops.Check("config file", "ok", "cf")),
+            mock.patch.object(ops, "check_catalog", return_value=ops.Check("catalog", "ok", "cat")),
+            mock.patch.object(ops, "check_port", return_value=ops.Check("port", "ok", "p")),
+            mock.patch.object(ops, "check_upstream", return_value=ops.Check("upstream", "ok", "u")),
+        ):
             rc = ops.doctor(["--json"])
         assert rc == 1
 
     def test_warn_does_not_fail(self) -> None:
-        with mock.patch.object(ops, "check_api_key", return_value=ops.Check("api key", "ok", "k")), \
-             mock.patch.object(ops, "check_service", return_value=ops.Check("service", "ok", "s")), \
-             mock.patch.object(ops, "check_meter", return_value=ops.Check("meter", "ok", "m")), \
-             mock.patch.object(ops, "check_logs", return_value=ops.Check("logs", "ok", "l")), \
-             mock.patch.object(ops, "check_config", return_value=ops.Check("config", "ok", "c")), \
-             mock.patch.object(ops, "check_config_file", return_value=ops.Check("config file", "ok", "cf")), \
-             mock.patch.object(ops, "check_catalog", return_value=ops.Check("catalog", "ok", "cat")), \
-             mock.patch.object(ops, "check_port", return_value=ops.Check("port", "ok", "p")), \
-             mock.patch.object(ops, "check_upstream", return_value=ops.Check("upstream", "warn", "not reachable")):
+        with (
+            mock.patch.object(ops, "check_api_key", return_value=ops.Check("api key", "ok", "k")),
+            mock.patch.object(ops, "check_service", return_value=ops.Check("service", "ok", "s")),
+            mock.patch.object(ops, "check_meter", return_value=ops.Check("meter", "ok", "m")),
+            mock.patch.object(ops, "check_logs", return_value=ops.Check("logs", "ok", "l")),
+            mock.patch.object(ops, "check_config", return_value=ops.Check("config", "ok", "c")),
+            mock.patch.object(ops, "check_config_file", return_value=ops.Check("config file", "ok", "cf")),
+            mock.patch.object(ops, "check_catalog", return_value=ops.Check("catalog", "ok", "cat")),
+            mock.patch.object(ops, "check_port", return_value=ops.Check("port", "ok", "p")),
+            mock.patch.object(ops, "check_upstream", return_value=ops.Check("upstream", "warn", "not reachable")),
+        ):
             rc = ops.doctor(["--json"])
         assert rc == 0
 
@@ -211,8 +225,10 @@ class TestDoctor:
         from opencode_go_proxy import catalog
 
         failing = [ops.Check("catalog", "fail", "unreadable", fix="doctor --fix")]
-        with mock.patch.object(ops, "_run_checks", side_effect=[failing, []]), \
-             mock.patch.object(catalog, "prepare_runtime_catalog") as prepare:
+        with (
+            mock.patch.object(ops, "_run_checks", side_effect=[failing, []]),
+            mock.patch.object(catalog, "prepare_runtime_catalog") as prepare,
+        ):
             ops.doctor(["--fix", "--json"])
         prepare.assert_called_once()
 
@@ -297,7 +313,10 @@ class TestMask:
         assert ops._mask_secret_values('api_key = "sk-live"') == "api_key= ***redacted***"
         assert ops._mask_secret_values("api_key = 'sk-single'") == "api_key= ***redacted***"
         assert ops._mask_secret_values('OPENCODE_API_KEY = "sk-upper"') == "OPENCODE_API_KEY= ***redacted***"
-        assert ops._mask_secret_values('env = { OPENCODE_API_KEY = "sk-inline" }') == "env = { OPENCODE_API_KEY= ***redacted*** }"
+        assert (
+            ops._mask_secret_values('env = { OPENCODE_API_KEY = "sk-inline" }')
+            == "env = { OPENCODE_API_KEY= ***redacted*** }"
+        )
         assert ops._mask_secret_values('model = "deepseek-v4-flash"') == 'model = "deepseek-v4-flash"'
 
     def test_redacts_log_text(self) -> None:
@@ -307,11 +326,15 @@ class TestMask:
         assert "[REDACTED]" in out
 
     def test_env_summary_redacts_secret_shaped(self) -> None:
-        with mock.patch.dict(os.environ, {
-            "OPENCODE_GO_API_KEY": "sk-topsecret",
-            "OPENCODE_GO_PROXY_STATE_DIR": "/tmp/state",
-            "CHAT_COMPLETIONS_BASE_URL": "https://opencode.ai/zen/go/v1",
-        }, clear=True):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPENCODE_GO_API_KEY": "sk-topsecret",
+                "OPENCODE_GO_PROXY_STATE_DIR": "/tmp/state",
+                "CHAT_COMPLETIONS_BASE_URL": "https://opencode.ai/zen/go/v1",
+            },
+            clear=True,
+        ):
             summary = ops._env_summary()
         assert summary["OPENCODE_GO_API_KEY"] == "[REDACTED]"
         assert summary["OPENCODE_GO_PROXY_STATE_DIR"] == "/tmp/state"
@@ -335,9 +358,11 @@ class TestSupportBundle:
             '{"at":"2026-08-10T00:00:00Z","model":"deepseek-v4-flash","status":200}\n'
         )
         out = tmp_path / "bundle.json"
-        with mock.patch.object(ops, "LOG_DIR", str(log_dir)), \
-             mock.patch.object(ops, "CONFIG_PATH", str(cfg)), \
-             mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_STATE_DIR": str(state)}):
+        with (
+            mock.patch.object(ops, "LOG_DIR", str(log_dir)),
+            mock.patch.object(ops, "CONFIG_PATH", str(cfg)),
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_STATE_DIR": str(state)}),
+        ):
             assert ops.support_bundle(["--output", str(out)]) == 0
         data = json.loads(out.read_text())
         assert data["schemaVersion"] == 1
@@ -375,15 +400,9 @@ class TestInstall:
 class TestPlatformServiceContract:
     def test_systemd_runs_one_pinned_truthful_proxy(self) -> None:
         root = Path(__file__).parents[1]
-        version = tomllib.loads((root / "pyproject.toml").read_text())["project"][
-            "version"
-        ]
-        service = (
-            root / "contrib/systemd/opencode-go-proxy.service"
-        ).read_text()
-        exec_lines = [
-            line for line in service.splitlines() if line.startswith("ExecStart=")
-        ]
+        version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+        service = (root / "contrib/systemd/opencode-go-proxy.service").read_text()
+        exec_lines = [line for line in service.splitlines() if line.startswith("ExecStart=")]
         assert len(exec_lines) == 1
         assert f"opencode-go-proxy@v{version}" in exec_lines[0]
         assert "--bind 127.0.0.1 --port 8787" in exec_lines[0]
@@ -391,13 +410,8 @@ class TestPlatformServiceContract:
 
     def test_menu_bar_pin_matches_package_version(self) -> None:
         root = Path(__file__).parents[1]
-        version = tomllib.loads((root / "pyproject.toml").read_text())["project"][
-            "version"
-        ]
-        controller = (
-            root
-            / "macos/MenuBarApp/Sources/OpenCodeGoMenuBar/ProxyController.swift"
-        ).read_text()
+        version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+        controller = (root / "macos/MenuBarApp/Sources/OpenCodeGoMenuBar/ProxyController.swift").read_text()
         assert f"opencode-go-proxy@v{version}" in controller
         assert not (root / "contrib/launchd").exists()
 
@@ -414,10 +428,13 @@ class TestInstallSkills:
         source = tmp_path / "SKILL.md"
         source.write_text("---\nname: opencode-go-proxy\n---\n\nBody text.\n")
         target = tmp_path / "skills" / "opencode-go-proxy" / "SKILL.md"
-        with mock.patch.dict(os.environ, {
-            "OPENCODE_GO_PROXY_SKILLS_DIR": str(tmp_path / "skills"),
-            "OPENCODE_GO_PROXY_SKILL_SOURCE": str(source),
-        }):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPENCODE_GO_PROXY_SKILLS_DIR": str(tmp_path / "skills"),
+                "OPENCODE_GO_PROXY_SKILL_SOURCE": str(source),
+            },
+        ):
             assert ops.install_skills([]) == 0
             assert ops.install_skills([]) == 0
         text = target.read_text()
@@ -432,19 +449,25 @@ class TestInstallSkills:
         target = skills / "opencode-go-proxy" / "SKILL.md"
         target.parent.mkdir(parents=True)
         target.write_text("---\nname: opencode-go-proxy\n---\n\nUser customized.\n")
-        with mock.patch.dict(os.environ, {
-            "OPENCODE_GO_PROXY_SKILLS_DIR": str(skills),
-            "OPENCODE_GO_PROXY_SKILL_SOURCE": str(source),
-        }):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPENCODE_GO_PROXY_SKILLS_DIR": str(skills),
+                "OPENCODE_GO_PROXY_SKILL_SOURCE": str(source),
+            },
+        ):
             assert ops.install_skills([]) == 1
         assert "refusing to overwrite" in capsys.readouterr().out
         assert target.read_text() == "---\nname: opencode-go-proxy\n---\n\nUser customized.\n"
 
     def test_missing_source_fails(self, tmp_path, capsys) -> None:
-        with mock.patch.dict(os.environ, {
-            "OPENCODE_GO_PROXY_SKILLS_DIR": str(tmp_path / "skills"),
-            "OPENCODE_GO_PROXY_SKILL_SOURCE": str(tmp_path / "missing.md"),
-        }):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPENCODE_GO_PROXY_SKILLS_DIR": str(tmp_path / "skills"),
+                "OPENCODE_GO_PROXY_SKILL_SOURCE": str(tmp_path / "missing.md"),
+            },
+        ):
             assert ops.install_skills([]) == 1
         assert "not found" in capsys.readouterr().out
 
@@ -454,9 +477,15 @@ class TestStatus:
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
         (log_dir / "opencode-go-proxy.log").write_text("x\n")
-        with mock.patch.object(ops, "LOG_DIR", str(log_dir)), \
-             mock.patch.object(ops, "check_service", return_value=ops.Check("service", "ok", "health 200 on http://127.0.0.1:8787/health")), \
-             mock.patch.object(ops, "check_port", return_value=ops.Check("port", "ok", "owned by proxy")):
+        with (
+            mock.patch.object(ops, "LOG_DIR", str(log_dir)),
+            mock.patch.object(
+                ops,
+                "check_service",
+                return_value=ops.Check("service", "ok", "health 200 on http://127.0.0.1:8787/health"),
+            ),
+            mock.patch.object(ops, "check_port", return_value=ops.Check("port", "ok", "owned by proxy")),
+        ):
             assert ops.status(["--json"]) == 0
         state = json.loads(capsys.readouterr().out)
         assert state["running"] is True
@@ -512,10 +541,7 @@ class TestReviewFixups:
 
 class TestReviewFixups2:
     def test_pem_private_key_fully_redacted(self, tmp_path) -> None:
-        pem = (
-            "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEA\nfakeline\n"
-            "-----END RSA PRIVATE KEY-----\n"
-        )
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEA\nfakeline\n-----END RSA PRIVATE KEY-----\n"
         config = tmp_path / "config.toml"
         config.write_text(f'custom = "{pem}"\n')
         with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
@@ -540,3 +566,102 @@ class TestReviewFixups2:
         config.write_text('openai_base_url = "http://127.0.0.1:9999/v1"\n')
         with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
             assert ops.check_config().ok is False
+
+    def test_check_config_follows_the_switcher_provider_table(self, tmp_path) -> None:
+        catalog = tmp_path / "proxy-catalog.json"
+        catalog.write_text(json.dumps({"models": [{"slug": "zen/gpt-6-luna"}]}), encoding="utf-8")
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'model_provider = "opencode-proxy"\n'
+            'model = "zen/gpt-6-luna"\n'
+            f"model_catalog_json = {json.dumps(str(catalog))}\n"
+            "\n[model_providers.opencode-proxy]\n"
+            'base_url = "http://127.0.0.1:8787/v1"\n'
+            'wire_api = "responses"\n'
+            "requires_openai_auth = true\n",
+            encoding="utf-8",
+        )
+        with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
+            check = ops.check_config()
+        assert check.ok is True
+        assert "opencode-proxy" in check.detail
+
+    def test_check_config_rejects_a_model_missing_from_the_catalog(self, tmp_path) -> None:
+        catalog = tmp_path / "proxy-catalog.json"
+        catalog.write_text(json.dumps({"models": [{"slug": "zen/other"}]}), encoding="utf-8")
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'model_provider = "opencode-proxy"\n'
+            'model = "zen/gpt-6-luna"\n'
+            f"model_catalog_json = {json.dumps(str(catalog))}\n"
+            "\n[model_providers.opencode-proxy]\n"
+            'base_url = "http://127.0.0.1:8787/v1"\n',
+            encoding="utf-8",
+        )
+        with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
+            check = ops.check_config()
+        assert check.ok is False
+        assert "not in" in check.detail
+
+    def test_check_config_rejects_a_provider_without_a_table(self, tmp_path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text('model_provider = "opencode-proxy"\n', encoding="utf-8")
+        with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
+            check = ops.check_config()
+        assert check.ok is False
+        assert "no [model_providers.opencode-proxy] table" in check.detail
+
+    def test_check_config_rejects_a_provider_table_that_bypasses_the_proxy(self, tmp_path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'model_provider = "opencode-proxy"\n'
+            "\n[model_providers.opencode-proxy]\n"
+            'base_url = "https://opencode.ai/inference/go/openai/v1"\n',
+            encoding="utf-8",
+        )
+        with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
+            check = ops.check_config()
+        assert check.ok is False
+        assert "does not route through the proxy" in check.detail
+
+    def test_provider_auth_warns_for_env_key(self, tmp_path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'model_provider = "opencode-proxy"\n'
+            "\n[model_providers.opencode-proxy]\n"
+            'base_url = "http://127.0.0.1:8787/v1"\n'
+            'env_key = "OPENCODE_GO_API_KEY"\n',
+            encoding="utf-8",
+        )
+        with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
+            check = ops.check_provider_auth()
+        assert check.status == "warn"
+        assert "env_key" in check.detail
+        assert check.fix
+
+    def test_provider_auth_ignores_a_direct_upstream_provider(self, tmp_path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'model_provider = "opencode-go"\n'
+            "\n[model_providers.opencode-go]\n"
+            'name = "OpenCode Go"\n'
+            'base_url = "https://opencode.ai/inference/go/openai/v1"\n'
+            'env_key = "OPENCODE_GO_API_KEY"\n',
+            encoding="utf-8",
+        )
+        with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
+            check = ops.check_provider_auth()
+        assert check.ok is True
+        assert "not proxy-routed" in check.detail
+
+    def test_provider_auth_accepts_requires_openai_auth(self, tmp_path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'model_provider = "opencode-proxy"\n'
+            "\n[model_providers.opencode-proxy]\n"
+            'base_url = "http://127.0.0.1:8787/v1"\n'
+            "requires_openai_auth = true\n",
+            encoding="utf-8",
+        )
+        with mock.patch("opencode_go_proxy.ops.CONFIG_PATH", str(config)):
+            assert ops.check_provider_auth().ok is True

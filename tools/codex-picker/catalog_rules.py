@@ -8,8 +8,29 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 INDEX_NAMES = ("intelligence", "coding", "agentic")
-MIN_CALIBRATED_SCORE = 50.0
-INPUT_PRICE_LIMIT = Decimal("0.25")
+MIN_CALIBRATED_SCORE = 45.0
+INPUT_PRICE_LIMIT = Decimal("0.30")
+
+# AA lists one row per reasoning effort. The base slug is usually the highest
+# level, but not always (e.g. ``gemini-3-5-flash-medium`` beats its base row).
+AA_REASONING_SUFFIXES = (
+    "-non-reasoning",
+    "-reasoning",
+    "-minimal",
+    "-low",
+    "-medium",
+    "-high",
+    "-xhigh",
+    "-max",
+)
+
+
+def aa_model_base(slug: str) -> str:
+    """Base model identity without an AA reasoning-effort suffix."""
+    for suffix in AA_REASONING_SUFFIXES:
+        if slug.endswith(suffix):
+            return slug[: -len(suffix)]
+    return slug
 
 
 def finite_number(value: Any) -> float | None:
@@ -53,7 +74,7 @@ def score_candidate(
 ) -> tuple[float | None, str]:
     """Bewertet ausschließlich den kalibrierten AA-Intelligence-Index.
 
-    ``primary`` sind direkt von Artificial Analysis geholte Indexwerte.
+    ``primary`` sind direkt von AA geholte Indexwerte.
     ``snapshot`` liefert Intelligence nur dann, wenn die Live-Population dafür
     nicht verwendet werden kann. OpenRouter-Transportwerte und Coding/Agentic-
     Werte sind absichtlich kein Score-Fallback.
@@ -98,10 +119,14 @@ def qualifies_model(
     return price.is_finite() and price_limit.is_finite() and price < price_limit and score_number > minimum_score
 
 
-def _component_key(identifier: str) -> str:
+def normalized_component(identifier: str) -> str:
     """Kanonisiert nur Provider-Praefix und Trenner, nicht Modellversionsziffern."""
     component = identifier.rsplit("/", 1)[-1].casefold().strip()
     return re.sub(r"[._]+", "-", component)
+
+
+def _component_key(identifier: str) -> str:
+    return normalized_component(identifier)
 
 
 def unique_model_component(target_id: str, source_ids: list[str]) -> str | None:

@@ -18,9 +18,8 @@
     Loopback port passed to the proxy watchdog when switching to proxy. Defaults to 8787.
 .PARAMETER ConfigPath
     Codex config.toml to inspect or update. Defaults to ~/.codex/config.toml.
-.PARAMETER UnboundArguments
-    Reserved for the -Help/--help compatibility form. Do not specify directly;
-    all other unrecognized arguments are rejected.
+.PARAMETER Help
+    Display this script's detailed help and exit. Use -?, -Help, or --help.
 .EXAMPLE
     .\switch-provider.ps1 -Check
 
@@ -41,7 +40,7 @@
     Requires PowerShell 7. The restart option targets Codex Desktop, not the TUI.
 #>
 #Requires -Version 7.0
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [ValidateSet("proxy", "openrouter")]
     [string]$Target,
@@ -50,16 +49,28 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8787,
     [string]$ConfigPath = (Join-Path $HOME ".codex\config.toml"),
+    [switch]$Help,
     [Parameter(ValueFromRemainingArguments = $true, DontShow = $true)]
-    [string[]]$UnboundArguments
+    [string[]]$RemainingArguments
 )
 
-if ($UnboundArguments) {
-    if ($UnboundArguments.Count -eq 1 -and $UnboundArguments[0] -in @("--help", "-Help")) {
-        Get-Help -Name $PSCommandPath -Detailed
-        return
+function Show-DetailedHelp {
+    $help = Get-Help -Name $PSCommandPath -Detailed
+    foreach ($item in @($help.syntax.syntaxItem)) {
+        $item.parameter = @($item.parameter | Where-Object { $_.name -ne "RemainingArguments" })
     }
-    throw "Unrecognized argument(s): $($UnboundArguments -join ', '). Use -? or --help for help."
+    $help.parameters.parameter = @(
+        $help.parameters.parameter | Where-Object { $_.name -ne "RemainingArguments" }
+    )
+    $help | Out-String -Width 140
+}
+
+if ($Help -or ($RemainingArguments.Count -eq 1 -and $RemainingArguments[0] -eq "--help")) {
+    Show-DetailedHelp
+    return
+}
+if ($RemainingArguments) {
+    throw "Unrecognized argument(s): $($RemainingArguments -join ', '). Use -?, -Help, or --help for help."
 }
 
 $ErrorActionPreference = "Stop"
@@ -254,6 +265,67 @@ function Get-CurrentValue {
     return $match.Groups[2].Value
 }
 
+function Get-ProviderTableBody {
+    param([string]$Text, [string]$Name)
+
+    $escaped = [regex]::Escape($Name)
+    $pattern = "(?ms)^[ \t]*\[model_providers\.(?:$escaped|`"$escaped`"|'$escaped')\][ \t]*(?:#.*)?\r?\n(?<body>.*?)(?=^[ \t]*\[|\z)"
+    $match = [regex]::Match($Text, $pattern)
+    if (-not $match.Success) { return $null }
+    return $match.Groups["body"].Value
+}
+
+function Show-CatalogConsistency {
+    param([string]$Text)
+
+    $model = Get-CurrentValue $Text "model"
+    $catalog = Get-CurrentValue $Text "model_catalog_json"
+    if ($model -eq "(not set)" -or $catalog -eq "(not set)") { return }
+    if (-not (Test-Path -LiteralPath $catalog -PathType Leaf)) {
+        Write-Output "catalog: MISSING ($catalog)"
+        return
+    }
+    try {
+        $payload = Get-Content -LiteralPath $catalog -Raw | ConvertFrom-Json
+        $slugs = @($payload.models | ForEach-Object { $_.slug })
+    }
+    catch {
+        Write-Output "catalog: UNREADABLE ($catalog)"
+        return
+    }
+    if ($slugs -contains $model) {
+        Write-Output "catalog: ok ($model is present)"
+    }
+    else {
+        Write-Output "catalog: STALE ($model is not in $catalog); rerun with -Target proxy to select a catalogued model"
+    }
+}
+
+function Show-ProviderAuth {
+    param([string]$Text, [string]$Provider = "")
+
+    if (-not $Provider) { $Provider = Get-CurrentValue $Text "model_provider" }
+    if ($Provider -notin @("opencode-proxy", "opencode-go", "zen")) { return }
+    $body = Get-ProviderTableBody -Text $Text -Name $Provider
+    if ($null -eq $body) {
+        Write-Output "provider auth: MISSING ([model_providers.$Provider]); add the table first"
+        return
+    }
+    $problems = @()
+    if ($body -notmatch '(?m)^[ \t]*requires_openai_auth[ \t]*=[ \t]*true[ \t]*(?:#.*)?$') {
+        $problems += "requires_openai_auth is not true"
+    }
+    if ($body -match '(?m)^[ \t]*env_key[ \t]*=') {
+        $problems += "env_key is set"
+    }
+    if ($problems) {
+        Write-Output "provider auth: WARN ($($problems -join '; ')); Codex Desktop plugin toggles may fail with HTTP 432"
+    }
+    else {
+        Write-Output "provider auth: ok (ChatGPT session)"
+    }
+}
+
 $current = [ordered]@{
     model_provider = Get-CurrentValue $raw "model_provider"
     model = Get-CurrentValue $raw "model"
@@ -270,7 +342,11 @@ Write-Host "active: $active"
 $current.GetEnumerator() | ForEach-Object {
     Write-Host ("  {0,-19} {1}" -f $_.Key, $_.Value)
 }
-if ($Check) { return }
+if ($Check) {
+    Show-CatalogConsistency $raw
+    Show-ProviderAuth $raw
+    return
+}
 
 function Restart-CodexDesktop {
     if ($ConfigPath -ne $defaultConfigPath) {
@@ -426,6 +502,7 @@ if ($Target -eq "proxy") {
         throw "Proxy did not become healthy; provider config was not changed. Watchdog exit code: $watchdogExitCode"
     }
     Write-Host "Proxy /health is ready on port $Port."
+    Show-ProviderAuth -Text $raw -Provider $wanted.model_provider
 }
 
 $wanted.model = Get-CatalogDefaultModel $wanted.model_catalog_json $wanted.model

@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,6 +42,10 @@ LOG_DIR = os.path.join(os.path.expanduser("~"), ".codex", "logs")
 CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".codex", "config.toml")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+# Provider names the shipped setups write. A table under any name counts as
+# long as its base_url points at the proxy; these names additionally get the
+# "table is missing" diagnosis because the name alone identifies the intent.
+PROXY_PROVIDER_NAMES = ("opencode-go", "zen", "opencode-proxy")
 HEALTH_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/health"
 
 # The proxy base smoke-test targets; point it at an isolated scratch proxy
@@ -65,7 +70,9 @@ _SECRET_KEY = re.compile(
     r'(?i)(?<![\w])([A-Za-z0-9_]*?(?:api[_-]?key|apikey|token|secret|password|authorization|bearer|access[_-]?key))\s*=\s*(?:"[^"]*"|\'[^\']*\')'
 )
 _SECRET_NAME = re.compile(r"(?i)(?:api[_-]?key|apikey|token|secret|password|authorization|bearer|access[_-]?key)")
-_SECRET_VALUE = re.compile(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s\"']+|(\bsk-[A-Za-z0-9_\-]{8,}\b)|(-----BEGIN [A-Z ]*PRIVATE KEY-----)")
+_SECRET_VALUE = re.compile(
+    r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s\"']+|(\bsk-[A-Za-z0-9_\-]{8,}\b)|(-----BEGIN [A-Z ]*PRIVATE KEY-----)"
+)
 
 
 class Check:
@@ -116,42 +123,159 @@ def check_config_file() -> Check:
     """config.toml exists at the path the proxy serves."""
     if os.path.exists(CONFIG_PATH):
         return Check("config file", "ok", CONFIG_PATH)
-    return Check("config file", "fail", f"{CONFIG_PATH} missing", fix="Start Codex once so it writes config.toml, then rerun doctor.")
+    return Check(
+        "config file",
+        "fail",
+        f"{CONFIG_PATH} missing",
+        fix="Start Codex once so it writes config.toml, then rerun doctor.",
+    )
 
 
-def _root_openai_base_url(text: str) -> str | None:
-    """Value of the root openai_base_url assignment (double- or single-quoted).
+def _points_at_proxy(url: Any) -> bool:
+    """True when a base URL is loopback on the proxy's port."""
+    if not isinstance(url, str) or not url:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return False
+    return parsed.hostname in ("127.0.0.1", "localhost", "::1") and parsed.port == DEFAULT_PORT
 
-    Stops at the first TOML table header: an openai_base_url inside a section
-    is not the root Codex setting.
-    """
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if line.startswith("["):
-            break
-        if not line or line.startswith("#"):
-            continue
-        match = re.match(r"""openai_base_url\s*=\s*(?:"([^"]+)"|'([^']+)')""", line)
-        if match:
-            return match.group(1) or match.group(2)
-    return None
+
+def _load_config() -> Json | None:
+    """Parse config.toml; None when it is missing or not valid TOML."""
+    try:
+        with open(CONFIG_PATH, "rb") as handle:
+            return tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
 
 
 def check_config() -> Check:
-    """Codex config points openai_base_url at the proxy."""
+    """Codex routes through the proxy and its selected model is catalogued.
+
+    Both setup paths are recognized: the managed ``config enable`` block
+    (root ``openai_base_url``) and the Windows switcher (root
+    ``model_provider`` plus a ``[model_providers.<name>]`` table). The model
+    check catches a catalog that no longer contains the selected slug, which
+    is what happens after a picker policy change.
+    """
     if not os.path.exists(CONFIG_PATH):
         return Check("config", "fail", f"{CONFIG_PATH} missing", fix="See the config file check.")
     try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            text = f.read()
+        with open(CONFIG_PATH, "rb") as handle:
+            config = tomllib.load(handle)
     except OSError as exc:
         return Check("config", "fail", str(exc))
-    base_url = _root_openai_base_url(text)
-    if base_url:
-        parsed = urllib.parse.urlparse(base_url)
-        if parsed.hostname in ("127.0.0.1", "localhost", "::1") and parsed.port == DEFAULT_PORT:
-            return Check("config", "ok", f"openai_base_url points at {base_url}")
-    return Check("config", "fail", f"root openai_base_url must point at http://{DEFAULT_HOST}:{DEFAULT_PORT}", fix="Run `opencode-go-proxy config enable` to point Codex at the proxy.")
+    except tomllib.TOMLDecodeError as exc:
+        return Check("config", "fail", f"{CONFIG_PATH} is not valid TOML: {exc}")
+
+    provider = config.get("model_provider")
+    providers = config.get("model_providers")
+    providers = providers if isinstance(providers, dict) else {}
+    route: str | None = None
+    table = providers.get(provider) if isinstance(provider, str) else None
+    table = table if isinstance(table, dict) else None
+    if isinstance(provider, str) and provider in PROXY_PROVIDER_NAMES and table is None:
+        return Check(
+            "config",
+            "fail",
+            f"model_provider = {provider!r} has no [model_providers.{provider}] table",
+            fix=f"Add [model_providers.{provider}] with base_url http://{DEFAULT_HOST}:{DEFAULT_PORT}.",
+        )
+    if table is not None and _points_at_proxy(table.get("base_url")):
+        # The table decides, not the name: a renamed switcher target still
+        # routes correctly, and a known name pointing elsewhere falls through
+        # to the accurate "does not route" diagnosis below.
+        route = f"model_provider = {provider} -> {table['base_url']}"
+    elif _points_at_proxy(config.get("openai_base_url")):
+        route = f"openai_base_url points at {config['openai_base_url']}"
+    elif isinstance(provider, str) and provider:
+        return Check(
+            "config",
+            "fail",
+            f"model_provider = {provider!r} does not route through the proxy",
+            fix="Switch to the proxy provider or run `opencode-go-proxy config enable`.",
+        )
+    else:
+        return Check(
+            "config",
+            "fail",
+            f"root model_provider/openai_base_url must point at http://{DEFAULT_HOST}:{DEFAULT_PORT}",
+            fix="Run `opencode-go-proxy config enable` to point Codex at the proxy.",
+        )
+
+    model = config.get("model")
+    catalog = config.get("model_catalog_json")
+    if isinstance(model, str) and model:
+        if not isinstance(catalog, str) or not catalog:
+            return Check(
+                "config",
+                "fail",
+                f"model = {model!r} has no model_catalog_json",
+                fix="Set model_catalog_json to a catalog that contains the model.",
+            )
+        path = os.path.expanduser(os.path.expandvars(catalog))
+        try:
+            with open(path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            return Check(
+                "config",
+                "fail",
+                f"model_catalog_json is not readable: {path} ({exc})",
+                fix="Rebuild the provider catalog or rerun the provider switcher.",
+            )
+        entries = payload.get("models") if isinstance(payload, dict) else None
+        slugs = {str(entry["slug"]) for entry in entries or [] if isinstance(entry, dict) and entry.get("slug")}
+        if model not in slugs:
+            return Check(
+                "config",
+                "fail",
+                f"model {model!r} is not in {path}",
+                fix="Select a catalogued model or rebuild the catalog with the model included.",
+            )
+        return Check("config", "ok", f"{route}; model {model} is catalogued in {os.path.basename(path)}")
+    return Check("config", "ok", route)
+
+
+def check_provider_auth() -> Check:
+    """The active proxy-routed provider keeps the ChatGPT session (no env_key).
+
+    Codex Desktop disables plugin toggles with HTTP 432 when a provider is
+    keyed by ``env_key`` instead of ``requires_openai_auth``. This is a
+    warning, not a failure: model routing still works without it. Providers
+    whose ``base_url`` does not point at the proxy are ignored, because a
+    direct-upstream provider legitimately needs ``env_key``.
+    """
+    config = _load_config()
+    if config is None:
+        return Check("provider auth", "warn", "config.toml is missing or not valid TOML")
+    provider = config.get("model_provider")
+    providers = config.get("model_providers")
+    providers = providers if isinstance(providers, dict) else {}
+    table = providers.get(provider) if isinstance(provider, str) else None
+    if not isinstance(table, dict):
+        if isinstance(provider, str) and provider in PROXY_PROVIDER_NAMES:
+            return Check("provider auth", "warn", f"[model_providers.{provider}] is missing")
+        return Check("provider auth", "ok", "no local proxy provider is active")
+    if not _points_at_proxy(table.get("base_url")):
+        # A direct-upstream provider (e.g. opencode-go to opencode.ai) keeps
+        # env_key legitimately; only proxy-routed tables must hold the session.
+        return Check("provider auth", "ok", f"[model_providers.{provider}] is not proxy-routed")
+    problems: list[str] = []
+    if table.get("requires_openai_auth") is not True:
+        problems.append("requires_openai_auth is not true")
+    if "env_key" in table:
+        problems.append("env_key overrides the ChatGPT session")
+    if problems:
+        return Check(
+            "provider auth",
+            "warn",
+            f"[model_providers.{provider}]: " + "; ".join(problems),
+            fix="Set requires_openai_auth = true and remove env_key (Codex Desktop plugin toggles otherwise fail with HTTP 432).",
+        )
+    return Check("provider auth", "ok", f"[model_providers.{provider}] keeps the ChatGPT session")
 
 
 def _catalog_models() -> tuple[str, list[Json]]:
@@ -180,7 +304,12 @@ def check_catalog() -> Check:
     """The runtime catalog is readable and lists models."""
     path, models = _catalog_models()
     if not models:
-        return Check("catalog", "fail", f"no models readable from {path}", fix="Run `opencode-go-proxy doctor --fix` (renders the seed) or `--refresh-catalog`.")
+        return Check(
+            "catalog",
+            "fail",
+            f"no models readable from {path}",
+            fix="Run `opencode-go-proxy doctor --fix` (renders the seed) or `--refresh-catalog`.",
+        )
     return Check("catalog", "ok", f"{len(models)} model(s) in {path}")
 
 
@@ -229,7 +358,12 @@ def check_service(url: str = HEALTH_URL) -> Check:
                 return Check("service", "fail", f"health payload is not ok on {url}")
             return Check("service", "ok", f"health {resp.status} on {url}")
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        return Check("service", "fail", f"not reachable on {url}: {exc}", fix="Start the proxy from the menu bar app, then rerun doctor.")
+        return Check(
+            "service",
+            "fail",
+            f"not reachable on {url}: {exc}",
+            fix="Start the proxy from the menu bar app, then rerun doctor.",
+        )
 
 
 def check_meter() -> Check:
@@ -240,7 +374,12 @@ def check_meter() -> Check:
         with open(path, "a", encoding="utf-8"):
             pass
     except OSError:
-        return Check("meter", "fail", "cannot write usage-events.jsonl", fix=f"Make {os.path.dirname(path)} writable, then rerun doctor.")
+        return Check(
+            "meter",
+            "fail",
+            "cannot write usage-events.jsonl",
+            fix=f"Make {os.path.dirname(path)} writable, then rerun doctor.",
+        )
     return Check("meter", "ok", path)
 
 
@@ -253,7 +392,12 @@ def check_logs() -> Check:
             pass
         os.unlink(probe)
     except OSError as exc:
-        return Check("logs", "fail", f"log dir not writable: {LOG_DIR} ({exc})", fix=f"Make {LOG_DIR} writable, then rerun doctor.")
+        return Check(
+            "logs",
+            "fail",
+            f"log dir not writable: {LOG_DIR} ({exc})",
+            fix=f"Make {LOG_DIR} writable, then rerun doctor.",
+        )
     present = [n for n in _LOG_NAMES if os.path.exists(os.path.join(LOG_DIR, n))]
     detail = ", ".join(present) if present else "writable; no log files yet"
     return Check("logs", "ok", detail)
@@ -268,7 +412,12 @@ def check_upstream() -> Check:
     except urllib.error.HTTPError as exc:
         return Check("upstream", "ok", f"{base} reachable (HTTP {exc.code})")
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        return Check("upstream", "warn", f"{base} not reachable ({exc})", fix="Check DNS/network; smoke-test exercises the full path.")
+        return Check(
+            "upstream",
+            "warn",
+            f"{base} not reachable ({exc})",
+            fix="Check DNS/network; smoke-test exercises the full path.",
+        )
 
 
 def _run_checks() -> list[Check]:
@@ -276,6 +425,7 @@ def _run_checks() -> list[Check]:
         check_api_key(),
         check_config_file(),
         check_config(),
+        check_provider_auth(),
         check_catalog(),
         check_port(),
         check_service(),
@@ -324,7 +474,9 @@ def doctor(argv: list[str] | None = None) -> int:
     checks = _run_checks()
     report = _doctor_report(checks)
     if json_output:
-        sys.stdout.write(json.dumps({"ok": report["ok"], "checks": report["checks"], "version": __version__}, indent=2) + "\n")
+        sys.stdout.write(
+            json.dumps({"ok": report["ok"], "checks": report["checks"], "version": __version__}, indent=2) + "\n"
+        )
     else:
         for c in checks:
             sys.stdout.write(f"{c.status.upper():5} {c.name}: {c.detail}\n")
@@ -413,9 +565,7 @@ def _mask_secret_values(text: str) -> str:
     return _SECRET_KEY.sub(lambda m: f"{m.group(1)}= ***redacted***", text)
 
 
-_PEM_PRIVATE_KEY = re.compile(
-    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL
-)
+_PEM_PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL)
 
 
 def _redact_text(text: str) -> str:
@@ -442,7 +592,8 @@ def _ensure_meter() -> None:
 def _env_summary() -> Json:
     """Proxy-relevant env vars; secret-shaped names and values are redacted."""
     names = sorted(
-        name for name in os.environ
+        name
+        for name in os.environ
         if name.startswith("OPENCODE")
         or name in {"CODEX_KEYCHAIN_SERVICE", "CODEX_MODEL_CATALOG", "CHAT_COMPLETIONS_BASE_URL"}
     )
@@ -497,7 +648,9 @@ def _log_tail(path: str, limit: int = 200) -> str | None:
 
 def _git_commit() -> str | None:
     try:
-        completed = subprocess.run(["git", "-C", _repo_root(), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=False)
+        completed = subprocess.run(
+            ["git", "-C", _repo_root(), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=False
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     return completed.stdout.strip() if completed.returncode == 0 else None
@@ -553,7 +706,9 @@ def support_bundle(argv: list[str] | None = None) -> int:
 
 def install(argv: list[str] | None = None) -> int:
     """Point at the menu bar app; macOS no longer uses a launchd agent."""
-    sys.stdout.write("install: run the proxy from the macOS menu bar app (no launchd agent); Linux uses contrib/systemd/opencode-go-proxy.service.\n")
+    sys.stdout.write(
+        "install: run the proxy from the macOS menu bar app (no launchd agent); Linux uses contrib/systemd/opencode-go-proxy.service.\n"
+    )
     return 0
 
 
@@ -622,9 +777,7 @@ def install_skills(argv: list[str] | None = None) -> int:
         except OSError:
             existing = ""
         if SKILL_MARKER not in existing:
-            sys.stdout.write(
-                f"install-skills FAIL: {target} exists and is not proxy-managed; refusing to overwrite\n"
-            )
+            sys.stdout.write(f"install-skills FAIL: {target} exists and is not proxy-managed; refusing to overwrite\n")
             return 1
     try:
         _atomic_write_text(target, text)
@@ -659,7 +812,7 @@ def status(argv: list[str] | None = None) -> int:
     return 0
 
 
-_UPDATE_SOURCE_URL = "git+https://github.com/kartikkabadi/opencode-go-proxy@v{version}"
+_UPDATE_SOURCE_URL = "git+https://github.com/pskraemer11/codex-provider-gateway@v{version}"
 _UV_LIST_TIMEOUT_SECONDS = 30
 _UV_INSTALL_TIMEOUT_SECONDS = 600
 

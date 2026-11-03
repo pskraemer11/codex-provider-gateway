@@ -10,7 +10,7 @@ not zero.
 
 The initial working input-price cap was `$0.50/M`. After reviewing the model
 catalog, it was lowered to `$0.25/M`, which excluded one model. The current
-policy is strictly below `$0.25/M`; a model priced at exactly `$0.25/M` does
+default is strictly below `$0.30/M`; a model priced at exactly `$0.30/M` does
 not qualify. `catalog_rules.INPUT_PRICE_LIMIT` is the single source used by
 selection, audit reporting, CSV validation, and the builder's printed criteria.
 
@@ -18,9 +18,11 @@ The initial quality threshold was `> 70/100` on a scale calibrated only over
 price-eligible candidates. That scale moved whenever the cheap candidate set
 changed. The current policy calibrates first over the complete usable AA
 Intelligence population and applies provider price and quality filters
-afterwards. The threshold is `> 50/100`; `catalog_rules.MIN_CALIBRATED_SCORE`
+afterwards. The threshold is `> 45/100`; `catalog_rules.MIN_CALIBRATED_SCORE`
 is the single source used by selection, CLI defaults, audit reporting, and the
-builder's printed criteria.
+builder's printed criteria. `45` keeps `zen/gpt-6-luna` (AA raw 27.8,
+calibrated ≈ 45.1) in the proxy catalog, which is the model the root Codex
+selection points at.
 
 ## Price evidence
 
@@ -30,13 +32,22 @@ builder's printed criteria.
 
 For Go and Zen, the audit records the minimum and maximum published input price
 for a route. Normal selection requires the maximum listed price to be strictly
-below `$0.25/M`; the CSV exposes both values. The filter does not use average
+below `$0.30/M`; the CSV exposes both values. The filter does not use average
 per-task costs.
 
 ## Benchmark score
 
 Raw AA values are associated only by exact model ID or a unique, canonicalized
 model-ID component. Ambiguous or missing matches remain unverified.
+
+AA lists one row per reasoning level (`-low`, `-medium`, `-high`, `-xhigh`,
+`-max`, `-reasoning`, `-non-reasoning`, `-minimal`). Each family is collapsed to
+its **highest** Intelligence value, because a catalog route selects the model,
+not a specific effort. The base slug is often but not always the strongest level
+(`gemini-3-5-flash-medium` beat its base row in the 2026-10-13 snapshot). The
+calibration population therefore holds one value per base model, not one per
+effort variant. Product suffixes that are not reasoning levels (for example
+`-pro`) stay separate families.
 
 The AA Intelligence Index is calibrated to a 0–100 Min-Max scale over all
 usable values in the selected AA population before provider prices are applied:
@@ -47,13 +58,16 @@ suspicious rather than scored. A model's individual live value is ignored when
 the live Intelligence population is rejected. Equal values therefore receive
 the same calibrated score. The source population order is:
 
-1. Live Artificial Analysis Data API Intelligence values.
-2. The dated local AA snapshot, at most 31 days old, when the live Intelligence
-   population is absent or all zero.
+1. Live AA Data API Intelligence values.
+2. The rolling live snapshot `data/artificial-analysis-live-snapshot.json`,
+   written after every successful fetch and at most 31 days old. It is used when
+   the live fetch fails for any reason (missing key, network error, rejected
+   response) or its Intelligence population is absent or all zero.
+3. The dated local AA snapshot, at most 31 days old, as the last resort.
 
 Absolute AA Intelligence values and calibrated scores are different units. An
 absolute 95th-percentile value such as `45.3` cannot be compared directly with
-a calibrated threshold such as `50/100`; the latter corresponds to a raw value
+a calibrated threshold such as `45/100`; the latter corresponds to a raw value
 derived from the observed minimum and maximum. Quantile statistics are useful
 for reviewing the distribution, but price and provider identity are applied
 only after the full-population calibration.
@@ -83,8 +97,16 @@ source, identity match, and the raw index dictionaries used for each candidate.
 ## Selection and explicit exceptions
 
 A normal candidate is selected only when input price is strictly below
-`$0.25/M` and calibrated score is strictly greater than `50/100`. Missing
+`$0.30/M` and calibrated score is strictly greater than `45/100`. Missing
 benchmark values are never substituted with zero.
+
+Each catalog lists a model once per provider route. The reasoning intensity is
+not a separate model: it stays the entry's `supported_reasoning_levels` and
+`default_reasoning_level` sub-selection. If a provider exposes effort-suffixed
+slugs as separate routes, the builder keeps the best-scored one (then the
+cheaper, then the shorter slug) and records the dropped ids in
+`deduplicated_reasoning_variants`. `opencode-go/` and `zen/` are different
+billing routes and are never merged into each other.
 
 Five explicitly requested free routes are the only score exceptions. They are
 selected only when the provider source confirms exactly `$0` input price and
@@ -99,7 +121,7 @@ remain `score: null`, `benchmark_source=unverified`, and
 when it passes the ordinary price and score filters. Similar Go/Zen IDs are not
 treated as the same route.
 
-Artificial Analysis describes its Coding Agent Index as a composite of
+AA describes its Coding Agent Index as a composite of
 FrontierCode v1.1, Terminal-Bench 4.0, and SWE-Atlas-QnA-AA. The user reports
 that this composite is not downloadable through the AA API. It is therefore
 not substituted for the API's Intelligence/Coding/Agentic indices and is not

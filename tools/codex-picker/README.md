@@ -10,6 +10,8 @@ combined desktop catalog depends on the routes announced by the proxy.
 
 The Windows PowerShell provider switcher, proxy health watchdog, and Task
 Scheduler installer now live here. See [Windows proxy autostart](#windows-proxy-autostart).
+Each script provides detailed comment-based help through `-?`, `-Help`, or
+`--help`, including every parameter and usage example.
 
 From this repository root, run:
 
@@ -27,23 +29,38 @@ after writing. API credentials are read only from
 `ARTIFICIAL_ANALYSIS_API_KEY` and the optional `OPENROUTER_API_KEY`.
 
 The picker uses `CODEX_HOME/.tmp/bundled-catalog.json` when it exists. If that
-file is absent, it obtains a full model template from `codex debug models`.
+file is absent, it obtains a full model template from `codex debug models
+--bundled`, which ignores the configured `model_catalog_json` and therefore
+returns the native models instead of the proxy routes.
 Pass `--template PATH` to use a specific catalog, `--proxy-url URL` for a
 non-default proxy endpoint, or `--codex-bin PATH` for a non-standard Codex CLI.
 The default proxy URL follows `OPENCODE_GO_PROXY_PORT` and otherwise uses
 `http://127.0.0.1:8787/v1/models`.
 
 The initial working input-price cap was `$0.50/M`. After catalog review it was
-lowered to the current strict cap of `$0.25/M`, excluding one model. The ordinary
+lowered to `$0.25/M`, and the current default is the strict cap of `$0.30/M`.
+The ordinary
 selection requires input price strictly below that cap and a calibrated AA
-Intelligence score strictly above `50/100`. The dated AA snapshot from the
-Artificial Analysis Free API is a benchmark-data fallback (not a free-model
+Intelligence score strictly above `45/100`. The `45` default keeps
+`zen/gpt-6-luna` (AA raw 27.8, calibrated ≈ 45.1) selectable, which is the model
+the root Codex selection points at; `--min-intelligence-score` raises it again.
+The dated AA snapshot from the
+AA Free API is a benchmark-data fallback (not a free-model
 price list) and is used only when the live Intelligence population is absent
 or all zero; the 60/40 Coding/Agentic composite and OpenRouter Coding fallback
-are not used. Intelligence is Min-Max calibrated over all usable values in the
-selected AA population before provider prices are applied. The price and score
+are not used. Every successful live fetch is also written to
+`data/artificial-analysis-live-snapshot.json` (rolling, overwritten on the next
+build, git-ignored) and used as the first fallback when the live fetch fails for
+any reason — missing key, network error, or a rejected response. The dated
+snapshot remains the second fallback. `--check` reads but never writes the
+rolling snapshot. Intelligence is Min-Max calibrated over all usable values in the
+selected AA population before provider prices are applied, with one value per
+base model (the highest reasoning level). The price and score
 filters therefore run after calibration, and a missing score is never converted
-to zero. Five explicitly requested free routes are included only when their
+to zero. Each catalog lists a model once per provider route; the reasoning
+intensity stays the entry's `supported_reasoning_levels`/`default_reasoning_level`
+sub-selection, and effort-suffixed duplicate routes are collapsed. Five
+explicitly requested free routes are included only when their
 provider source confirms `$0` input price, and remain marked `unverified` when
 no benchmark is available:
 
@@ -74,9 +91,9 @@ The current human-review snapshot is
 It contains one row for each evaluated candidate below the input-price cap,
 including unselected models and the exact raw index values/provenance in JSON
 cells. The five selected free routes have blank scores and an explicit exception
-reason. It predates the full-population `> 50` policy and is retained as
+reason. It predates the full-population score policy and is retained as
 historical review evidence. This dated report is a non-live reconstruction from the successful
-2026-10-30 audit because the subsequent Artificial Analysis API rebuild was
+2026-10-30 audit because the subsequent AA API rebuild was
 rate-limited; its provenance is recorded in the audit JSON.
 
 ## Windows proxy autostart

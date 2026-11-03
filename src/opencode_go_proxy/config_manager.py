@@ -16,18 +16,23 @@ config.toml:
     name = "opencode-go"
     base_url = "http://127.0.0.1:8787/v1"
     wire_api = "responses"
+    requires_openai_auth = true
 
     [model_providers.zen]
     name = "zen"
     base_url = "http://127.0.0.1:8787/v1"
     wire_api = "responses"
+    requires_openai_auth = true
     # END opencode-go-proxy-managed
 
 The multi_agent_v2 feature block is written only when the installed codex
 binary accepts the flag (probed via `codex debug prompt-input --enable
 multi_agent_v2`); a provider table is omitted entirely when the user declares
 their own [model_providers.<same-name>] table (TOML forbids splitting one
-table across two locations). Semantics mirror codex-router's
+table across two locations). Both tables set requires_openai_auth instead of
+env_key: Codex keeps its ChatGPT session, so Codex Desktop plugin toggles do
+not fail with HTTP 432, and the proxy ignores the incoming bearer anyway.
+Semantics mirror codex-router's
 config-manager: enable never replaces a user-owned openai_base_url or
 model_catalog_json, disable removes only the managed block (and the file when
 the block was its only content), and the Codex Voice realtime keys are added
@@ -239,6 +244,7 @@ def _block_lines(
                 'name = "opencode-go"',
                 f"base_url = {_toml_string(base_url)}",
                 'wire_api = "responses"',
+                "requires_openai_auth = true",
             ]
         )
     if not owned.get("zen"):
@@ -249,6 +255,7 @@ def _block_lines(
                 'name = "zen"',
                 f"base_url = {_toml_string(base_url)}",
                 'wire_api = "responses"',
+                "requires_openai_auth = true",
             ]
         )
     lines.append(END_MARKER)
@@ -517,7 +524,9 @@ def config_cmd(argv: list[str] | None = None) -> int:
                 sys.stdout.write(f"openai_base_url: {report['openai_base_url'] or '(unset)'}\n")
                 sys.stdout.write(f"model_catalog_json: {report['model_catalog_json'] or '(unset)'}\n")
                 sys.stdout.write(f"multi_agent_v2: {'enabled' if report['multi_agent_v2'] else 'not enabled'}\n")
-                sys.stdout.write(f"zen_provider_block: {'enabled' if report['zen_provider_block'] else 'not enabled'}\n")
+                sys.stdout.write(
+                    f"zen_provider_block: {'enabled' if report['zen_provider_block'] else 'not enabled'}\n"
+                )
                 if report["voice_keys_user_owned"]:
                     sys.stdout.write(f"user voice keys: {', '.join(sorted(report['voice_keys_user_owned']))}\n")
                 if report["voice_keys_managed"]:

@@ -106,9 +106,7 @@ def test_native_template_uses_explicit_file(tmp_path: Path) -> None:
     assert source["path"] == str(template)
 
 
-def test_native_template_falls_back_to_codex_debug_models(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_native_template_falls_back_to_codex_debug_models(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[list[str]] = []
 
     def fake_run(command: list[str], **kwargs: object) -> object:
@@ -118,9 +116,9 @@ def test_native_template_falls_back_to_codex_debug_models(
     monkeypatch.setattr(builder.subprocess, "run", fake_run)
     models, source = builder.load_native_catalog_template(None, codex_dir=tmp_path, codex_bin="codex-test")
 
-    assert calls == [["codex-test", "debug", "models"]]
+    assert calls == [["codex-test", "debug", "models", "--bundled"]]
     assert models == [{"slug": "native-example"}]
-    assert source["source"] == "codex-debug-models"
+    assert source["source"] == "codex-debug-models-bundled"
 
 
 def _cached_proxy_audit() -> dict:
@@ -138,9 +136,7 @@ def _cached_proxy_audit() -> dict:
             "opencode_proxy": {"cached_provider_model_count": 0, "live_verified": False},
             "artificial_analysis_snapshot": {"status": "unavailable"},
         },
-        "selection_diagnostics": {
-            provider: dict(diagnostic) for provider in ("openrouter", "go", "zen")
-        },
+        "selection_diagnostics": {provider: dict(diagnostic) for provider in ("openrouter", "go", "zen")},
         "calibration_populations": {},
         "evaluated_candidates": [],
         "models": [],
@@ -171,6 +167,64 @@ def test_check_requires_live_proxy_unless_cache_is_explicit(
         assert "Live-Pruefung verlangt" in output
     else:
         assert "Warnung: lokaler Proxy nicht erreichbar" in output
+
+
+def test_check_displays_available_intelligence_score_for_free_exception(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    catalogs = {provider: {"models": []} for provider in ("openrouter", "go", "zen", "proxy")}
+    audit = _cached_proxy_audit()
+    audit["sources"]["opencode_proxy"]["live_verified"] = True
+    audit["evaluated_candidates"] = [{"provider": "zen", "id": "zen/scored-model", "score": 68.765}]
+    audit["models"] = [
+        {
+            "provider": "zen",
+            "id": "zen/deepseek-v4.1-flash-free",
+            "selection_reason": "user_pinned_free_exception",
+            "score": 72.56,
+        }
+    ]
+    monkeypatch.setattr(builder, "build_catalog_data", lambda **kwargs: (catalogs, audit))
+    monkeypatch.setattr(sys, "argv", ["build_provider_catalogs.py", "--check", "--provider", "zen"])
+
+    assert builder.main() == 0
+    output = capsys.readouterr().out
+    assert "zen/scored-model=68.8/100" in output
+    assert "zen: zen/deepseek-v4.1-flash-free (Intelligence-Score 72.6/100)" in output
+
+
+@pytest.mark.parametrize(
+    ("identifier", "selection_reason", "input_price"),
+    [
+        ("zen/scored-model", "price_and_calibrated_score", "0.12"),
+        ("zen/deepseek-v4.1-flash-free", "user_pinned_free_exception", "0"),
+    ],
+)
+def test_model_selection_score_display_uses_one_decimal_for_regular_and_free_models(
+    identifier: str, selection_reason: str, input_price: str
+) -> None:
+    entry = builder._make_entry(
+        provider="zen",
+        identifier=identifier,
+        source_model=None,
+        template={"slug": "template"},
+        label="Zen model",
+        prices=[Decimal(input_price)],
+        limits=[],
+        score=72.56,
+        method="AA Intelligence Index",
+        transport="AA Data API",
+        price_source="OpenCode Console documentation",
+        selection_reason=selection_reason,
+    )
+
+    assert "Intelligence-Score 72.6/100" in entry["display_name"]
+    assert "AA-Intelligence-Score 72.6/100" in entry["description"]
+    assert f"Auswahl: {selection_reason}" in entry["description"]
+    assert "Auswahlgrund" not in entry["description"]
+    assert "benchmark_source=AA" in entry["description"]
+    assert "artificial-analysis" not in entry["description"]
+    assert "Artificial Analysis" not in entry["description"]
 
 
 def test_coding_agentic_pair_does_not_precede_missing_intelligence() -> None:
@@ -242,34 +296,28 @@ def test_openrouter_intelligence_alone_is_not_an_approved_score_fallback() -> No
 
 
 def test_filter_uses_strict_price_and_score_boundaries() -> None:
-    assert catalog_rules.qualifies_model("0.249999", 50.001)
-    assert catalog_rules.qualifies_model("0.249999", 99)
-    assert not catalog_rules.qualifies_model("0.25", 99)
-    assert not catalog_rules.qualifies_model("0.10", 50)
+    assert catalog_rules.qualifies_model("0.299999", 45.001)
+    assert catalog_rules.qualifies_model("0.299999", 99)
+    assert not catalog_rules.qualifies_model("0.30", 99)
+    assert not catalog_rules.qualifies_model("0.10", 45)
     assert not catalog_rules.qualifies_model(None, 90)
     assert not catalog_rules.qualifies_model("0.10", None)
-    assert not catalog_rules.qualifies_model("0.022", 49.999)
+    assert not catalog_rules.qualifies_model("0.022", 44.999)
 
 
 def test_filter_uses_cli_configurable_strict_price_and_score_boundaries() -> None:
-    assert catalog_rules.qualifies_model(
-        "0.149", 75, input_price_limit=Decimal("0.15"), min_calibrated_score=74
-    )
-    assert not catalog_rules.qualifies_model(
-        "0.15", 75, input_price_limit=Decimal("0.15"), min_calibrated_score=74
-    )
-    assert not catalog_rules.qualifies_model(
-        "0.149", 74, input_price_limit=Decimal("0.15"), min_calibrated_score=74
-    )
+    assert catalog_rules.qualifies_model("0.149", 75, input_price_limit=Decimal("0.15"), min_calibrated_score=74)
+    assert not catalog_rules.qualifies_model("0.15", 75, input_price_limit=Decimal("0.15"), min_calibrated_score=74)
+    assert not catalog_rules.qualifies_model("0.149", 74, input_price_limit=Decimal("0.15"), min_calibrated_score=74)
 
 
 def test_picker_price_cap_is_shared_and_reported() -> None:
-    assert catalog_rules.INPUT_PRICE_LIMIT == Decimal("0.25")
+    assert catalog_rules.INPUT_PRICE_LIMIT == Decimal("0.30")
     assert builder.INPUT_PRICE_LIMIT is catalog_rules.INPUT_PRICE_LIMIT
-    assert catalog_rules.MIN_CALIBRATED_SCORE == 50.0
+    assert catalog_rules.MIN_CALIBRATED_SCORE == 45.0
     assert builder.MIN_CALIBRATED_SCORE == catalog_rules.MIN_CALIBRATED_SCORE
     assert builder.selection_criteria_text() == (
-        "Kriterien: Input < $0.25/M Token und kalibrierter AA-Intelligence-Score > 50/100"
+        "Kriterien: Input < $0.30/M Token und kalibrierter AA-Intelligence-Score > 45/100"
     )
     assert builder.selection_criteria_text(Decimal("0.15"), 74) == (
         "Kriterien: Input < $0.15/M Token und kalibrierter AA-Intelligence-Score > 74/100"
@@ -328,6 +376,157 @@ def test_cross_provider_identity_requires_one_exact_canonical_model_component() 
 def test_artificial_analysis_endpoint_is_the_supported_post_migration_path() -> None:
     assert builder.AA_URL == "https://artificialanalysis.ai/api/v2/language/models/free"
     assert "/api/v2/data/" not in builder.AA_URL
+
+
+def test_aa_model_base_strips_reasoning_suffixes_only() -> None:
+    assert catalog_rules.aa_model_base("gpt-6-luna") == "gpt-6-luna"
+    assert catalog_rules.aa_model_base("gpt-6-luna-xhigh") == "gpt-6-luna"
+    assert catalog_rules.aa_model_base("gpt-6-luna-non-reasoning") == "gpt-6-luna"
+    assert catalog_rules.aa_model_base("gpt-6-luna-max") == "gpt-6-luna"
+    # A real product suffix is not a reasoning level.
+    assert catalog_rules.aa_model_base("gpt-6-luna-pro") == "gpt-6-luna-pro"
+
+
+def test_calibration_population_keeps_only_the_highest_reasoning_level() -> None:
+    rows = [
+        {"slug": "model-a", "evaluations": {"artificial_analysis_intelligence_index": 10}},
+        {"slug": "model-a-high", "evaluations": {"artificial_analysis_intelligence_index": 30}},
+        {"slug": "model-a-low", "evaluations": {"artificial_analysis_intelligence_index": 20}},
+        {"slug": "model-b", "evaluations": {"artificial_analysis_intelligence_index": 50}},
+    ]
+
+    populations, sources = builder.calibration_populations(rows, [])
+
+    assert populations["intelligence"] == (30.0, 50.0)
+    assert sources["intelligence"] == "artificial-analysis-data-api"
+
+
+def test_source_metrics_selects_the_family_maximum_over_the_base_row() -> None:
+    rows = [
+        {"slug": "model-a", "evaluations": {"artificial_analysis_intelligence_index": 10}},
+        {"slug": "model-a-xhigh", "evaluations": {"artificial_analysis_intelligence_index": 30}},
+        {"slug": "model-a-low", "evaluations": {"artificial_analysis_intelligence_index": 5}},
+    ]
+
+    primary, snapshot, _, join = builder._source_metrics("zen/model-a", rows, [], {})
+
+    assert primary == {"intelligence": 30.0}
+    assert snapshot == {}
+    assert "reasoning-family maximum (model-a-xhigh)" in join
+
+
+def test_source_metrics_labels_an_exact_slug_when_it_is_already_the_maximum() -> None:
+    rows = [
+        {"slug": "model-a", "evaluations": {"artificial_analysis_intelligence_index": 30}},
+        {"slug": "model-a-high", "evaluations": {"artificial_analysis_intelligence_index": 20}},
+    ]
+
+    primary, _, _, join = builder._source_metrics("zen/model-a", rows, [], {})
+
+    assert primary == {"intelligence": 30.0}
+    assert join.startswith("AA=exact slug")
+
+
+def test_source_metrics_does_not_merge_a_product_variant_into_the_family() -> None:
+    rows = [
+        {"slug": "model-a", "evaluations": {"artificial_analysis_intelligence_index": 10}},
+        {"slug": "model-a-pro", "evaluations": {"artificial_analysis_intelligence_index": 90}},
+    ]
+
+    primary, _, _, join = builder._source_metrics("zen/model-a", rows, [], {})
+
+    assert primary == {"intelligence": 10.0}
+    assert join.startswith("AA=exact slug")
+
+
+@pytest.mark.parametrize(
+    ("family", "rows", "expected"),
+    [
+        (
+            "glm-4-6",
+            {"glm-4-6": 14.9, "glm-4-6-reasoning": 18.5},
+            18.5,
+        ),
+        (
+            "claude-4-5-haiku",
+            {"claude-4-5-haiku": 15.4, "claude-4-5-haiku-reasoning": 16.9},
+            16.9,
+        ),
+        (
+            "gpt-oss-20b",
+            {"gpt-oss-20b": 9.0, "gpt-oss-20b-low": 10.0, "gpt-oss-20b-high": None},
+            10.0,
+        ),
+        (
+            "gemini-3-8-flash",
+            {"gemini-3-8-flash": 30.5, "gemini-3-8-flash-medium": 30.0, "gemini-3-8-flash-low": 22.3},
+            30.5,
+        ),
+        (
+            "glm-5-3",
+            {"glm-5-3": 44.8, "glm-5-3-low": 34.3},
+            44.8,
+        ),
+    ],
+)
+def test_reasoning_family_patterns_from_the_workbook(family, rows, expected) -> None:
+    aa_rows = [
+        {
+            "slug": slug,
+            "evaluations": {
+                "artificial_analysis_intelligence_index": value,
+            },
+        }
+        for slug, value in rows.items()
+    ]
+
+    primary, _, _, join = builder._source_metrics(f"zen/{family}", aa_rows, [], {})
+
+    assert primary == {"intelligence": expected}
+    assert "unverified" not in join.split(";")[0]
+
+
+def test_catalog_keeps_one_entry_per_base_model_and_drops_effort_variants() -> None:
+    items = [
+        {"id": "openai/model-a", "score": 50.0, "price": "0.10", "entry": {"slug": "openai/model-a"}},
+        {"id": "openai/model-a-high", "score": 60.0, "price": "0.10", "entry": {"slug": "openai/model-a-high"}},
+        {"id": "openai/model-a-pro", "score": 70.0, "price": "0.10", "entry": {"slug": "openai/model-a-pro"}},
+    ]
+
+    kept, dropped = builder._dedupe_reasoning_variants(items)
+
+    assert [item["id"] for item in kept] == ["openai/model-a-high", "openai/model-a-pro"]
+    assert [item["id"] for item in dropped] == ["openai/model-a"]
+
+
+def test_reasoning_variant_tie_break_prefers_the_cheaper_base_slug() -> None:
+    items = [
+        {"id": "openai/model-a", "score": 50.0, "price": "0.10", "entry": {"slug": "openai/model-a"}},
+        {"id": "openai/model-a-high", "score": 50.0, "price": "0.20", "entry": {"slug": "openai/model-a-high"}},
+    ]
+
+    kept, dropped = builder._dedupe_reasoning_variants(items)
+
+    assert [item["id"] for item in kept] == ["openai/model-a"]
+    assert [item["id"] for item in dropped] == ["openai/model-a-high"]
+
+
+def test_dedupe_keeps_go_and_zen_as_distinct_routes() -> None:
+    items = [
+        {"id": "opencode-go/model-a", "score": 50.0, "price": "0.10", "entry": {"slug": "opencode-go/model-a"}},
+        {"id": "zen/model-a", "score": 50.0, "price": "0.10", "entry": {"slug": "zen/model-a"}},
+        {
+            "id": "opencode-go/model-a-high",
+            "score": 60.0,
+            "price": "0.10",
+            "entry": {"slug": "opencode-go/model-a-high"},
+        },
+    ]
+
+    kept, dropped = builder._dedupe_reasoning_variants(items)
+
+    assert sorted(item["id"] for item in kept) == ["opencode-go/model-a-high", "zen/model-a"]
+    assert [item["id"] for item in dropped] == ["opencode-go/model-a"]
 
 
 def test_direct_go_catalog_keeps_provider_prefix_while_zen_uses_bare_id() -> None:
@@ -578,6 +777,134 @@ def test_aa_snapshot_loader_rejects_stale_snapshot_values(tmp_path) -> None:
 
     assert rows == []
     assert provenance["status"] == "stale"
+
+
+def _aa_live_source() -> dict:
+    return {
+        "url": builder.AA_URL,
+        "retrieved_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "page_count": 1,
+        "page_size": 200,
+        "row_count": 1,
+        "tier": "free",
+        "intelligence_index_version": 5,
+        "sha256_by_page": ["a" * 64],
+    }
+
+
+def _aa_live_rows() -> list[dict]:
+    return [
+        {
+            "id": "aa-id-1",
+            "slug": "model-1",
+            "evaluations": {"artificial_analysis_intelligence_index": 50},
+        }
+    ]
+
+
+def test_write_aa_snapshot_round_trips_through_the_snapshot_loader(tmp_path) -> None:
+    snapshot_path = tmp_path / "artificial-analysis-live-snapshot.json"
+    rows = _aa_live_rows()
+
+    written = builder.write_aa_snapshot(snapshot_path, rows, _aa_live_source())
+
+    assert written["bytes"] > 0
+    assert len(written["sha256"]) == 64
+    loaded, provenance = builder.fetch_aa_snapshot(snapshot_path)
+    assert loaded == rows
+    assert provenance["status"] == "ok"
+    assert provenance["row_count"] == 1
+    assert provenance["intelligence_index_version"] == 5
+
+
+def test_load_aa_population_persists_a_successful_live_fetch(monkeypatch, tmp_path) -> None:
+    live_rows = _aa_live_rows()
+    monkeypatch.setattr(builder, "fetch_aa_models", lambda key: (live_rows, _aa_live_source()))
+    live_path = tmp_path / "live.json"
+
+    population = builder.load_aa_population(
+        live_snapshot_path=live_path,
+        dated_snapshot_path=tmp_path / "dated.json",
+        api_key="test-key",
+    )
+
+    assert population.rows == live_rows
+    assert population.source["snapshot"]["status"] == "written"
+    assert live_path.is_file()
+    assert population.snapshot_rows == live_rows
+    assert population.snapshot_source["file_name"] == live_path.name
+
+
+def test_load_aa_population_skips_persisting_in_check_mode(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(builder, "fetch_aa_models", lambda key: (_aa_live_rows(), _aa_live_source()))
+    live_path = tmp_path / "live.json"
+
+    population = builder.load_aa_population(
+        live_snapshot_path=live_path,
+        dated_snapshot_path=tmp_path / "dated.json",
+        api_key="test-key",
+        persist_live_snapshot=False,
+    )
+
+    assert population.source["snapshot"]["status"] == "skipped"
+    assert not live_path.exists()
+
+
+def test_load_aa_population_falls_back_to_the_rolling_snapshot(monkeypatch, tmp_path) -> None:
+    live_path = tmp_path / "live.json"
+    builder.write_aa_snapshot(live_path, _aa_live_rows(), _aa_live_source())
+
+    def fail(key: str):
+        raise builder.CatalogError("AA: HTTP 503")
+
+    monkeypatch.setattr(builder, "fetch_aa_models", fail)
+
+    population = builder.load_aa_population(
+        live_snapshot_path=live_path,
+        dated_snapshot_path=tmp_path / "dated.json",
+        api_key="test-key",
+    )
+
+    assert population.rows == []
+    assert population.source["status"] == "unavailable"
+    assert "503" in population.source["reason"]
+    assert [row["slug"] for row in population.snapshot_rows] == ["model-1"]
+    assert population.snapshot_source["status"] == "ok"
+    populations, sources = builder.calibration_populations(population.rows, population.snapshot_rows)
+    assert sources["intelligence"] == "artificial-analysis-local-snapshot"
+    assert populations["intelligence"] == (50.0,)
+
+
+def test_load_aa_population_without_api_key_uses_the_rolling_snapshot(tmp_path) -> None:
+    live_path = tmp_path / "live.json"
+    builder.write_aa_snapshot(live_path, _aa_live_rows(), _aa_live_source())
+
+    population = builder.load_aa_population(
+        live_snapshot_path=live_path,
+        dated_snapshot_path=tmp_path / "dated.json",
+        api_key=None,
+    )
+
+    assert population.rows == []
+    assert "ARTIFICIAL_ANALYSIS_API_KEY" in population.source["reason"]
+    assert population.snapshot_rows == _aa_live_rows()
+
+
+def test_load_aa_population_prefers_the_rolling_snapshot_over_the_dated_one(tmp_path) -> None:
+    live_path = tmp_path / "live.json"
+    dated_path = tmp_path / "dated.json"
+    builder.write_aa_snapshot(live_path, _aa_live_rows(), _aa_live_source())
+    dated_rows = [{"id": "old", "slug": "old-model", "evaluations": {}}]
+    builder.write_aa_snapshot(dated_path, dated_rows, _aa_live_source())
+
+    population = builder.load_aa_population(
+        live_snapshot_path=live_path,
+        dated_snapshot_path=dated_path,
+        api_key=None,
+    )
+
+    assert population.snapshot_rows == _aa_live_rows()
+    assert population.dated_snapshot_source["file_name"] == dated_path.name
 
 
 def test_openrouter_benchmark_transport_prefers_management_key(monkeypatch) -> None:

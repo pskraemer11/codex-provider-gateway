@@ -108,6 +108,41 @@ def test_capture_excludes_prefixed_and_opencode_go_slugs(tmp_path) -> None:
     assert {m["slug"] for m in snapshot["models"]} == {"gpt-5.6-luna"}
 
 
+def test_capture_prefers_bundled_over_the_configured_catalog(tmp_path) -> None:
+    # A configured proxy catalog makes plain `codex debug models` return only
+    # zen/opencode-go routes. --bundled must win so the native set survives.
+    script = (
+        "import json, sys\n"
+        "if sys.argv[1] == '--version':\n"
+        "    print('codex-cli 0.166.0-test')\n"
+        "elif '--bundled' in sys.argv:\n"
+        "    print(json.dumps({'models': [{'slug': 'gpt-5.6-luna'}]}))\n"
+        "else:\n"
+        "    print(json.dumps({'models': [{'slug': 'zen/gpt-6-luna'}]}))\n"
+    )
+    codex_bin = write_python_executable(tmp_path / "codex", script)
+    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: codex_bin}):
+        snapshot = native_models.capture_native_models()
+    assert {m["slug"] for m in snapshot["models"]} == {"gpt-5.6-luna"}
+
+
+def test_capture_falls_back_when_bundled_is_unsupported(tmp_path) -> None:
+    script = (
+        "import json, sys\n"
+        "if sys.argv[1] == '--version':\n"
+        "    print('codex-cli 0.140.0-test')\n"
+        "elif '--bundled' in sys.argv:\n"
+        "    print('error: unexpected argument', file=sys.stderr)\n"
+        "    sys.exit(2)\n"
+        "else:\n"
+        "    print(json.dumps({'models': [{'slug': 'gpt-5.6-terra'}]}))\n"
+    )
+    codex_bin = write_python_executable(tmp_path / "codex", script)
+    with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: codex_bin}):
+        snapshot = native_models.capture_native_models()
+    assert {m["slug"] for m in snapshot["models"]} == {"gpt-5.6-terra"}
+
+
 def test_dry_run_prints_and_does_not_write(tmp_path, capsys) -> None:
     codex_bin = _write_fake_codex_bin(tmp_path / "codex")
     with mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: codex_bin}):
@@ -133,9 +168,7 @@ def test_missing_bin_errors_cleanly(capsys) -> None:
     with (
         mock.patch.object(native_models, "_codex_bin_candidates", return_value=()),
         mock.patch.object(shutil, "which", return_value=None),
-        mock.patch.dict(
-            os.environ, {native_models.CODEX_BIN_ENV: "/nonexistent/codex-bin"}
-        ),
+        mock.patch.dict(os.environ, {native_models.CODEX_BIN_ENV: "/nonexistent/codex-bin"}),
     ):
         rc = native_models.native_capture_cmd(["--dry-run"])
     assert rc == 1
@@ -208,9 +241,7 @@ def test_effort_clamp_drops_unknown_efforts() -> None:
         json.dump(compact, handle)
     _seed_native_capture()  # effort vocabulary: low, medium, max, high, ultra
     merged = catalog.render_merged_catalog()
-    clamped = next(
-        m for m in merged["models"] if m["slug"] == "opencode-go/deepseek-v4-flash"
-    )
+    clamped = next(m for m in merged["models"] if m["slug"] == "opencode-go/deepseek-v4-flash")
     efforts = [level["effort"] for level in clamped["supported_reasoning_levels"]]
     assert efforts == ["low", "medium"]
 
@@ -234,7 +265,5 @@ def test_effort_clamp_skipped_without_capture() -> None:
     with open(os.path.join(state, catalog.STATE_COMPACT_NAME), "w") as handle:
         json.dump(compact, handle)
     merged = catalog.render_merged_catalog()
-    entry = next(
-        m for m in merged["models"] if m["slug"] == "opencode-go/deepseek-v4-flash"
-    )
+    entry = next(m for m in merged["models"] if m["slug"] == "opencode-go/deepseek-v4-flash")
     assert [level["effort"] for level in entry["supported_reasoning_levels"]] == ["ultra-super"]

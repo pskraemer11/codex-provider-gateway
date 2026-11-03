@@ -193,11 +193,13 @@ Ersetzen gesichert; nach dem Schreiben wird der Codex-Loader geprüft.
 Verwenden Sie `--provider openrouter|go|zen|proxy`, um einen einzelnen Katalog
 zu erzeugen, und `--max-input-price` oder `--min-intelligence-score`, um einen
 anderen Pareto-Punkt zu wählen. Der Standardgrenzwert für den Eingabepreis ist
-`$0.25/M` (strikt darunter). Erhöhen Sie ihn, wenn Sie mehr Modelle wünschen.
-Der kalibrierte Schwellenwert für den Artificial Analysis Intelligence Index
-liegt standardmäßig strikt über `50/100`; die Kalibrierungspopulation enthält
+`$0.30/M` (strikt darunter). Erhöhen Sie ihn, wenn Sie mehr Modelle wünschen.
+Der kalibrierte Schwellenwert für den AA Intelligence Index
+liegt standardmäßig strikt über `45/100`; die Kalibrierungspopulation enthält
 immer alle nutzbaren Werte, bevor die Providerpreise angewendet werden. Der
-Rohindex wird zuerst auf `0..100` skaliert und normalisiert.
+Rohindex wird zuerst auf `0..100` skaliert und normalisiert. Der Standardwert
+`45` hält `zen/gpt-6-luna` (AA-Rohwert 27,8, kalibriert ≈ 45,1) im
+Proxy-Katalog — genau das Modell, auf das die Root-Auswahl von Codex zeigt.
 
 Der Windows-Switcher schaltet den Root-Provider von Codex zwischen
 `openrouter` und der lokalen Konfiguration `opencode-proxy` um:
@@ -227,11 +229,17 @@ env_key = "OPENROUTER_API_KEY"
 name = "OpenCode Go + Zen (local proxy)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
-env_key = "OPENCODE_GO_API_KEY"
+requires_openai_auth = true
 ```
 
+`requires_openai_auth = true` ohne `env_key` behält die ChatGPT-Session als
+Provider-Anmeldedaten. Codex Desktop verweigert Plugin-Schalter mit HTTP 432,
+wenn der aktive Provider über `env_key` angebunden ist. Der Proxy ignoriert den
+eingehenden Bearer ohnehin, beide Varianten routen Modellverkehr identisch.
+
 Der Picker erzeugt oder verändert diese Provider-Tabellen nicht, weil er
-`config.toml` nicht anfasst.
+`config.toml` nicht anfasst. `opencode-go-proxy doctor` warnt, wenn der aktive
+Proxy-Provider noch `env_key` setzt oder `requires_openai_auth` fehlt.
 
 ## Schnittstellen
 
@@ -318,19 +326,22 @@ Der Picker schreibt die vier einleitend beschriebenen Kataloge sowie
 
 - OpenRouter-Preise aus `/api/v1/models`
 - OpenCode-Go- und Zen-Preise aus deren Dokumentationstabellen
-- Intelligence-Werte von Artificial Analysis aus der Live-AA-API
-- einen datierten lokalen AA-Snapshot ausschließlich als begrenzten Fallback
+- Intelligence-Werte aus der Live-AA-API
+- den letzten erfolgreichen Live-Abruf als rollierenden Snapshot
+  (`tools/codex-picker/data/artificial-analysis-live-snapshot.json`), danach
+  einen datierten lokalen AA-Snapshot als begrenzten Fallback
 - Go/Zen-Routennamen und -Familien aus dem laufenden Proxy und dessen
   State-Katalog
 
-Die normale Auswahl erfordert einen Eingabepreis `< $0.25/M` und einen
-kalibrierten AA-Intelligence-Score `> 50/100`. Der Score wird per Min-Max über
+Die normale Auswahl erfordert einen Eingabepreis `< $0.30/M` und einen
+kalibrierten AA-Intelligence-Score `> 45/100`. Der Score wird per Min-Max über
 alle nutzbaren Werte der ausgewählten AA-Population kalibriert, bevor
 Providerpreise angewendet werden. Dadurch bleibt die Skala am gesamten
 Modellfeld verankert, statt `0/100` anhand der aktuell preisgeeigneten
-Teilmenge neu zu definieren. Wenn die Live-Intelligence-Population nicht
-verfügbar oder vollständig null ist, wird dieselbe Regel auf den begrenzten
-lokalen Snapshot angewendet. Fehlende oder mehrdeutige Benchmark-Identitäten
+Teilmenge neu zu definieren. Wenn der Live-Abruf scheitert oder seine
+Intelligence-Population nicht verfügbar bzw. vollständig null ist, wird
+dieselbe Regel auf den rollierenden Snapshot und danach auf den begrenzten
+datierten Snapshot angewendet. Fehlende oder mehrdeutige Benchmark-Identitäten
 bleiben `unverified`; sie werden nicht in null umgewandelt. Fünf ausdrücklich
 angeforderte Free-Routen werden nur aufgenommen, wenn die Providerquelle einen
 Eingabepreis von `$0` bestätigt. Die OpenRouter-Indizes Coding und Agentic

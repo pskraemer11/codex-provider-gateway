@@ -59,10 +59,14 @@ class TestEnable:
         assert f"base_url = {json.dumps(config_manager.managed_base_url())}" in text
         assert 'wire_api = "responses"' in text
 
+    def test_provider_tables_keep_the_chatgpt_session(self, cfg_path) -> None:
+        config_manager.enable()
+        text = _read(cfg_path)
+        assert text.count("requires_openai_auth = true") == 2
+        assert "env_key" not in text
+
     def test_omits_feature_block_when_probe_fails(self, cfg_path, tmp_path, monkeypatch) -> None:
-        codex = write_python_executable(
-            tmp_path / "bin-fail" / "codex", "raise SystemExit(1)\n"
-        )
+        codex = write_python_executable(tmp_path / "bin-fail" / "codex", "raise SystemExit(1)\n")
         monkeypatch.setenv("OPENCODE_GO_PROXY_CODEX_BIN", codex)
         report = config_manager.enable()
         assert report["multi_agent_v2"] is False
@@ -96,13 +100,7 @@ class TestEnable:
             assert (nested.stat().st_mode & 0o777) == 0o600
 
     def test_preserves_user_root_and_tables(self, cfg_path) -> None:
-        user = (
-            'model = "gpt-5.6-luna"\n'
-            "model_provider = \"openai\"\n"
-            '\n'
-            '[model_providers.opencode-go]\n'
-            'name = "Go"\n'
-        )
+        user = 'model = "gpt-5.6-luna"\nmodel_provider = "openai"\n\n[model_providers.opencode-go]\nname = "Go"\n'
         with open(cfg_path, "w", encoding="utf-8") as handle:
             handle.write(user)
         config_manager.enable()
@@ -132,7 +130,7 @@ class TestEnable:
         base = config_manager.managed_base_url()
         catalog = config_manager.managed_catalog_path()
         with open(cfg_path, "w", encoding="utf-8") as handle:
-            handle.write(f'openai_base_url = {json.dumps(base)}\nmodel_catalog_json = {json.dumps(catalog)}\n')
+            handle.write(f"openai_base_url = {json.dumps(base)}\nmodel_catalog_json = {json.dumps(catalog)}\n")
         assert config_manager.enable()["changed"] is True
         assert config_manager.enable()["changed"] is False
         assert _read(cfg_path).count(config_manager.START_MARKER) == 1
@@ -165,10 +163,7 @@ class TestEnable:
         assert _read(cfg_path) == before
 
     def test_refuses_multiple_end_markers(self, cfg_path) -> None:
-        malformed = (
-            f"{config_manager.START_MARKER}\n# x\n{config_manager.END_MARKER}\n"
-            f"{config_manager.END_MARKER}\n"
-        )
+        malformed = f"{config_manager.START_MARKER}\n# x\n{config_manager.END_MARKER}\n{config_manager.END_MARKER}\n"
         with open(cfg_path, "w", encoding="utf-8") as handle:
             handle.write(malformed)
         with pytest.raises(config_manager.ConfigError, match="END_MARKER|markers"):
@@ -176,7 +171,9 @@ class TestEnable:
         assert _read(cfg_path) == malformed
 
     def test_leaves_foreign_managed_blocks_alone(self, cfg_path) -> None:
-        foreign = "# BEGIN codex-router-managed\nopenai_base_url = \"http://127.0.0.1:1234/v1\"\n# END codex-router-managed\n"
+        foreign = (
+            '# BEGIN codex-router-managed\nopenai_base_url = "http://127.0.0.1:1234/v1"\n# END codex-router-managed\n'
+        )
         with open(cfg_path, "w", encoding="utf-8") as handle:
             handle.write(foreign)
         with pytest.raises(config_manager.ConfigError, match="user-owned openai_base_url"):
@@ -212,7 +209,7 @@ class TestDisable:
         assert config_manager.disable()["changed"] is False
 
     def test_keeps_user_voice_keys_outside_block(self, cfg_path) -> None:
-        user_voice = f"{config_manager.REALTIME_WS_KEY} = \"https://user.example.com/ws\"\n"
+        user_voice = f'{config_manager.REALTIME_WS_KEY} = "https://user.example.com/ws"\n'
         with open(cfg_path, "w", encoding="utf-8") as handle:
             handle.write(user_voice)
         config_manager.enable()
@@ -337,10 +334,7 @@ class TestNoDuplicateKeys:
         ):
             base_url = config_manager.managed_base_url()
             catalog_path = config_manager.managed_catalog_path()
-            path.write_text(
-                f'openai_base_url = "{base_url}"\n'
-                f'model_catalog_json = "{catalog_path}"\n'
-            )
+            path.write_text(f'openai_base_url = "{base_url}"\nmodel_catalog_json = "{catalog_path}"\n')
             result = config_manager.enable()
         assert result["changed"] is True
         text = path.read_text()

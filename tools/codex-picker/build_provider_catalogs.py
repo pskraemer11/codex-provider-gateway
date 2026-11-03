@@ -1,4 +1,4 @@
-"""Build Codex catalogs from OpenRouter, Artificial Analysis, and OpenCode."""
+"""Build Codex catalogs from OpenRouter, AA, and OpenCode."""
 
 from __future__ import annotations
 
@@ -26,7 +26,9 @@ from catalog_rules import (
     INDEX_NAMES,
     INPUT_PRICE_LIMIT,
     MIN_CALIBRATED_SCORE,
+    aa_model_base,
     finite_number,
+    normalized_component,
     qualifies_model,
     score_candidate,
     score_population,
@@ -35,7 +37,11 @@ from catalog_rules import (
 
 # The `/free` endpoint/tier is AA API access metadata, not model token pricing.
 AA_URL = "https://artificialanalysis.ai/api/v2/language/models/free"
+AA_DOCUMENTATION_URL = "https://artificialanalysis.ai/data-api/docs#getLanguageModelsFree"
 AA_SNAPSHOT_MAX_AGE_DAYS = 31
+# Rolling fallback: the last successful live fetch, rewritten on every build.
+LIVE_SNAPSHOT_NAME = "artificial-analysis-live-snapshot.json"
+LIVE_SNAPSHOT_ENV = "ARTIFICIAL_ANALYSIS_LIVE_SNAPSHOT"
 OR_MODELS_URL = "https://openrouter.ai/api/v1/models"
 OR_BENCHMARKS_URL = "https://openrouter.ai/api/v1/benchmarks"
 GO_DOC_URL = "https://opencode.ai/v2/docs/console/go"
@@ -131,13 +137,13 @@ def _fetch_aa_models_once(api_key: str) -> tuple[list[dict[str, Any]], dict[str,
         payload, digest = _get_json(f"{AA_URL}?page={page}", {"x-api-key": api_key})
         pagination, page_rows = payload.get("pagination"), payload.get("data")
         if not isinstance(pagination, dict) or not isinstance(page_rows, list):
-            raise CatalogError("Artificial Analysis: Pagination oder data-Liste fehlt.")
+            raise CatalogError("AA: Pagination oder data-Liste fehlt.")
         tier = payload.get("tier")
         page_size = pagination.get("page_size")
         total_pages = pagination.get("total_pages")
         response_version = payload.get("intelligence_index_version")
         if tier not in {"free", "pro", "commercial"}:
-            raise CatalogError("Artificial Analysis: ungueltige oder fehlende tier-Metadaten.")
+            raise CatalogError("AA: ungueltige oder fehlende tier-Metadaten.")
         if (
             type(pagination.get("page")) is not int
             or pagination["page"] != page
@@ -147,9 +153,9 @@ def _fetch_aa_models_once(api_key: str) -> tuple[list[dict[str, Any]], dict[str,
             or total_pages < 1
             or not isinstance(pagination.get("has_more"), bool)
         ):
-            raise CatalogError("Artificial Analysis: widerspruechliche Seitennummern.")
+            raise CatalogError("AA: widerspruechliche Seitennummern.")
         if finite_number(response_version) is None:
-            raise CatalogError("Artificial Analysis: Intelligence-Index-Version fehlt oder ist ungueltig.")
+            raise CatalogError("AA: Intelligence-Index-Version fehlt oder ist ungueltig.")
         if expected_pages is None:
             expected_pages = total_pages
             expected_page_size = page_size
@@ -162,9 +168,9 @@ def _fetch_aa_models_once(api_key: str) -> tuple[list[dict[str, Any]], dict[str,
             or version != response_version
             or page > expected_pages
         ):
-            raise CatalogError("Artificial Analysis: Seitenzahl aenderte sich waehrend des Abrufs.")
+            raise CatalogError("AA: Seitenzahl aenderte sich waehrend des Abrufs.")
         if pagination.get("has_more") is not (page < expected_pages):
-            raise CatalogError("Artificial Analysis: has_more stimmt nicht mit total_pages ueberein.")
+            raise CatalogError("AA: has_more stimmt nicht mit total_pages ueberein.")
         for row_number, row in enumerate(page_rows, start=1):
             if (
                 not isinstance(row, dict)
@@ -172,11 +178,9 @@ def _fetch_aa_models_once(api_key: str) -> tuple[list[dict[str, Any]], dict[str,
                 or not isinstance(row.get("slug"), str)
                 or not isinstance(row.get("evaluations"), dict)
             ):
-                raise CatalogError(
-                    f"Artificial Analysis: Modell-schema unvollstaendig auf Seite {page}, Zeile {row_number}."
-                )
+                raise CatalogError(f"AA: Modell-schema unvollstaendig auf Seite {page}, Zeile {row_number}.")
             if row["id"] in seen_ids:
-                raise CatalogError(f"Artificial Analysis: doppelte Modell-id auf Seite {page}, Zeile {row_number}.")
+                raise CatalogError(f"AA: doppelte Modell-id auf Seite {page}, Zeile {row_number}.")
             seen_ids.add(row["id"])
             rows.append(row)
         hashes.append(digest)
@@ -187,6 +191,7 @@ def _fetch_aa_models_once(api_key: str) -> tuple[list[dict[str, Any]], dict[str,
         "url": AA_URL,
         "retrieved_at": _now(),
         "page_count": expected_pages,
+        "page_size": expected_page_size,
         "row_count": len(rows),
         "tier": expected_tier,
         "intelligence_index_version": version,
@@ -202,7 +207,7 @@ def fetch_aa_models(api_key: str) -> tuple[list[dict[str, Any]], dict[str, Any]]
             if attempt == 0 and "doppelte Modell-id" in str(error):
                 continue
             raise
-    raise CatalogError("Artificial Analysis: Pagination blieb nach erneutem Abruf inkonsistent.")
+    raise CatalogError("AA: Pagination blieb nach erneutem Abruf inkonsistent.")
 
 
 def default_aa_snapshot_path() -> Path:
@@ -215,6 +220,14 @@ def default_aa_snapshot_path() -> Path:
         if candidate.is_file():
             return candidate
     return Path.home() / "Python-Projekte" / relative_path
+
+
+def default_live_snapshot_path() -> Path:
+    """Rolling snapshot of the last successful AA fetch, kept next to this tool."""
+    configured = os.environ.get(LIVE_SNAPSHOT_ENV)
+    if configured:
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parent / "data" / LIVE_SNAPSHOT_NAME
 
 
 def fetch_aa_snapshot(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -314,6 +327,115 @@ def fetch_aa_snapshot(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]
         "sha256": digest,
     }
     return (rows if provenance["status"] == "ok" else []), provenance
+
+
+def write_aa_snapshot(path: Path, rows: list[dict[str, Any]], source: dict[str, Any]) -> dict[str, Any]:
+    """Persist a successful live AA fetch as the next rolling fallback.
+
+    The file uses the same schema ``fetch_aa_snapshot`` validates, so the two
+    readers stay interchangeable. Written atomically: a failed build never
+    leaves a half-written snapshot behind.
+    """
+    payload = {
+        "meta": {
+            "documentation_url": AA_DOCUMENTATION_URL,
+            "source_url": AA_URL,
+            "tier": source.get("tier"),
+            "has_more_final": False,
+            "page_size": source.get("page_size"),
+            "pages": source.get("page_count"),
+            "records": len(rows),
+            "intelligence_index_version": source.get("intelligence_index_version"),
+            "retrieved_at_utc": source.get("retrieved_at"),
+        },
+        "data": rows,
+    }
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    encoded = body.encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp")
+    temporary.write_bytes(encoded)
+    os.replace(temporary, path)
+    return {
+        "path": str(path),
+        "bytes": len(encoded),
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+@dataclass(frozen=True)
+class AaPopulation:
+    """Live AA rows plus the fallback snapshot chosen for this run."""
+
+    rows: list[dict[str, Any]]
+    source: dict[str, Any]
+    snapshot_rows: list[dict[str, Any]]
+    snapshot_source: dict[str, Any]
+    live_snapshot_source: dict[str, Any]
+    dated_snapshot_source: dict[str, Any]
+
+
+def load_aa_population(
+    *,
+    live_snapshot_path: Path,
+    dated_snapshot_path: Path,
+    api_key: str | None,
+    persist_live_snapshot: bool = True,
+) -> AaPopulation:
+    """Fetch AA live, persist the rolling snapshot, and select the fallback.
+
+    A failed or missing live fetch is not fatal: the rolling snapshot of the
+    last successful fetch is used, then the dated snapshot. The build aborts
+    later only when no usable Intelligence population remains.
+    """
+    rows: list[dict[str, Any]] = []
+    if api_key:
+        try:
+            rows, source = fetch_aa_models(api_key)
+        except CatalogError as error:
+            rows, source = (
+                [],
+                {
+                    "url": AA_URL,
+                    "status": "unavailable",
+                    "reason": str(error),
+                    "retrieved_at": _now(),
+                },
+            )
+        else:
+            if persist_live_snapshot:
+                try:
+                    source["snapshot"] = {"status": "written", **write_aa_snapshot(live_snapshot_path, rows, source)}
+                except OSError as error:
+                    source["snapshot"] = {
+                        "status": "write_failed",
+                        "path": str(live_snapshot_path),
+                        "reason": str(error),
+                    }
+            else:
+                source["snapshot"] = {"status": "skipped"}
+    else:
+        source = {
+            "url": AA_URL,
+            "status": "unavailable",
+            "reason": "ARTIFICIAL_ANALYSIS_API_KEY ist nicht gesetzt.",
+            "retrieved_at": _now(),
+        }
+
+    live_snapshot_rows, live_snapshot_source = fetch_aa_snapshot(live_snapshot_path)
+    dated_rows, dated_snapshot_source = fetch_aa_snapshot(dated_snapshot_path)
+    if live_snapshot_rows:
+        snapshot_rows, snapshot_source = live_snapshot_rows, live_snapshot_source
+    else:
+        snapshot_rows, snapshot_source = dated_rows, dated_snapshot_source
+    return AaPopulation(
+        rows=rows,
+        source=source,
+        snapshot_rows=snapshot_rows,
+        snapshot_source=snapshot_source,
+        live_snapshot_source=live_snapshot_source,
+        dated_snapshot_source=dated_snapshot_source,
+    )
 
 
 def fetch_openrouter_models(api_key: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -552,6 +674,28 @@ def _index_values(row: dict[str, Any]) -> dict[str, float]:
     return output
 
 
+def _best_index_values(rows: list[dict[str, Any]], index: str) -> dict[str, float]:
+    """Highest value per base model across AA reasoning levels.
+
+    AA lists one row per reasoning effort (``-low`` … ``-max`` plus
+    ``-non-reasoning``). Collapsing each family to its strongest level keeps one
+    value per model, both for the calibration population and for a target's
+    score. The base slug is often but not always the strongest level.
+    """
+    best: dict[str, float] = {}
+    for position, row in enumerate(rows):
+        slug = row.get("slug")
+        value = _index_values(row).get(index)
+        if value is None:
+            continue
+        # A row without a slug cannot be grouped; keep it as its own model.
+        base = aa_model_base(slug) if isinstance(slug, str) else f"__row_{position}"
+        current = best.get(base)
+        if current is None or value > current:
+            best[base] = value
+    return best
+
+
 def _usable_calibration_population(values: list[Any]) -> tuple[float, ...] | None:
     population = score_population(values)
     if population is None or not any(population):
@@ -566,17 +710,17 @@ def calibration_populations(
 ) -> tuple[dict[str, tuple[float, ...]], dict[str, str]]:
     """Kalibriert den AA-Intelligence-Index vor der Preisfilterung.
 
-    Die Skala verwendet alle verwendbaren Intelligence-Werte der gewählten
-    AA-Population. Preisfilter und Score-Schwelle werden erst danach
-    angewendet. Der optionale ``or_metrics``-Parameter bleibt für ältere
-    Aufrufer akzeptiert, beeinflusst die Auswahl aber absichtlich nicht.
+    Die Skala verwendet pro Modell den höchsten Wert über alle AA-Reasoning-
+    Stufen. Preisfilter und Score-Schwelle werden erst danach angewendet. Der
+    optionale ``or_metrics``-Parameter bleibt für ältere Aufrufer akzeptiert,
+    beeinflusst die Auswahl aber absichtlich nicht.
     """
     del or_metrics
-    live_population = _usable_calibration_population([_index_values(row).get("intelligence") for row in aa_rows])
+    live_population = _usable_calibration_population(list(_best_index_values(aa_rows, "intelligence").values()))
     source = "artificial-analysis-data-api"
     if live_population is None:
         live_population = _usable_calibration_population(
-            [_index_values(row).get("intelligence") for row in snapshot_rows]
+            list(_best_index_values(snapshot_rows, "intelligence").values())
         )
         source = "artificial-analysis-local-snapshot"
     if live_population is None:
@@ -707,6 +851,45 @@ def _candidate_sort_key(provider: str, candidate: dict[str, Any]) -> tuple[bool,
     )
 
 
+def _dedupe_reasoning_variants(
+    items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep one catalog entry per base model and provider route.
+
+    The picker lists a model once per provider; its reasoning intensity is the
+    entry's ``supported_reasoning_levels``/``default_reasoning_level``
+    sub-selection. If a provider advertises effort-suffixed variants as separate
+    routes, the best-scored one wins (then the cheaper, then the shorter slug)
+    and the rest are reported as dropped. ``opencode-go/`` and ``zen/`` stay
+    distinct routes: they are different billing paths, not reasoning levels.
+    """
+    kept: dict[tuple[str, str], dict[str, Any]] = {}
+    dropped: list[dict[str, Any]] = []
+    for item in items:
+        identifier = str(item["id"])
+        vendor, _, model = identifier.rpartition("/")
+        key = (vendor, aa_model_base(model))
+        current = kept.get(key)
+        if current is None:
+            kept[key] = item
+        elif _reasoning_variant_rank(item) > _reasoning_variant_rank(current):
+            dropped.append(current)
+            kept[key] = item
+        else:
+            dropped.append(item)
+    return list(kept.values()), dropped
+
+
+def _reasoning_variant_rank(item: dict[str, Any]) -> tuple[bool, float, Decimal, int]:
+    score = finite_number(item.get("score"))
+    return (
+        score is not None,
+        score if score is not None else 0.0,
+        -Decimal(str(item["price"])),
+        -len(str(item["id"])),
+    )
+
+
 def _price_ids(tiers: list[PriceTier], route_ids: list[str]) -> dict[str, str]:
     by_key: dict[str, list[str]] = {}
     for route_id in route_ids:
@@ -725,38 +908,60 @@ def _direct_provider_identifier(provider: str, route_id: str) -> str:
     return f"opencode-go/{route_id}" if provider == "go" else route_id
 
 
+def _aa_family_row(target_id: str, rows: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
+    """Row with the highest Intelligence value among the target's AA variants.
+
+    Identity still starts with ``unique_model_component``; only the effort
+    level is widened, so two genuinely different models are not merged. A
+    target that names an effort suffix resolves to its base family.
+    """
+    slugs = [str(row["slug"]) for row in rows if isinstance(row.get("slug"), str)]
+    match = unique_model_component(target_id, slugs)
+    if match is not None:
+        base = aa_model_base(match)
+    else:
+        base = aa_model_base(normalized_component(target_id))
+        if not any(aa_model_base(slug) == base for slug in slugs):
+            return None, "unverified"
+    best_row: dict[str, Any] | None = None
+    best_value: float | None = None
+    for row in rows:
+        slug = row.get("slug")
+        if not isinstance(slug, str) or aa_model_base(slug) != base:
+            continue
+        value = _index_values(row).get("intelligence")
+        if value is None:
+            continue
+        if best_value is None or value > best_value:
+            best_row, best_value = row, value
+    if best_row is None:
+        return None, "unverified"
+    chosen = str(best_row["slug"])
+    if normalized_component(chosen) == normalized_component(target_id):
+        return best_row, "exact slug"
+    return best_row, f"reasoning-family maximum ({chosen})"
+
+
 def _source_metrics(
     target_id: str,
     aa_rows: list[dict[str, Any]],
     snapshot_rows: list[dict[str, Any]],
     or_metrics: dict[str, dict[str, float]],
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float], str]:
-    aa_slugs = [str(row["slug"]) for row in aa_rows if isinstance(row.get("slug"), str)]
-    aa_match = unique_model_component(target_id, aa_slugs)
-    aa_by_slug = {str(row["slug"]): row for row in aa_rows if isinstance(row.get("slug"), str)}
-    primary = _index_values(aa_by_slug[aa_match]) if aa_match else {}
-    snapshot_slugs = [str(row["slug"]) for row in snapshot_rows if isinstance(row.get("slug"), str)]
-    snapshot_match = unique_model_component(target_id, snapshot_slugs)
-    snapshot_by_slug = {str(row["slug"]): row for row in snapshot_rows if isinstance(row.get("slug"), str)}
-    snapshot_values = _index_values(snapshot_by_slug[snapshot_match]) if snapshot_match else {}
+    aa_row, aa_join = _aa_family_row(target_id, aa_rows)
+    primary = _index_values(aa_row) if aa_row is not None else {}
+    snapshot_row, snapshot_join = _aa_family_row(target_id, snapshot_rows)
+    snapshot_values = _index_values(snapshot_row) if snapshot_row is not None else {}
     if target_id in or_metrics:
         or_match = target_id
     else:
         or_match = unique_model_component(target_id, list(or_metrics))
     fallback = or_metrics.get(or_match, {}) if or_match else {}
-    aa_join = "exact slug" if target_id == aa_match else "unique exact model-id component" if aa_match else "unverified"
     or_join = (
         "exact model_permaslug"
         if target_id == or_match
         else "unique exact model-id component"
         if or_match
-        else "unverified"
-    )
-    snapshot_join = (
-        "unique exact model-id component"
-        if snapshot_match and target_id != snapshot_match
-        else "exact slug"
-        if snapshot_match
         else "unverified"
     )
     join = f"AA={aa_join}; AA snapshot={snapshot_join}; OpenRouter={or_join}"
@@ -778,8 +983,8 @@ def _score_transport_sources(
             sources = ["artificial-analysis-local-snapshot"]
 
     labels = {
-        "artificial-analysis-data-api": "Artificial Analysis Data API",
-        "artificial-analysis-local-snapshot": "dated Artificial Analysis snapshot",
+        "artificial-analysis-data-api": "AA Data API",
+        "artificial-analysis-local-snapshot": "dated AA snapshot",
     }
     return "+".join(sources) or "unverified", " + ".join(labels[source] for source in sources) or "unverified"
 
@@ -801,6 +1006,17 @@ def _clone_model(template: dict[str, Any], source: dict[str, Any] | None, slug: 
 def _price_label(values: list[Decimal]) -> str:
     low, high = min(values), max(values)
     return f"${low}/M input" if low == high else f"${low}–${high}/M input"
+
+
+def _format_intelligence_score(score: float | None) -> str:
+    """Format a display-only score without changing its stored precision."""
+    return f"{score:.1f}/100" if score is not None else "unverified"
+
+
+def _free_exception_display(item: dict[str, Any]) -> str:
+    """One pinned-free line for the selection report, including available scores."""
+    score = _format_intelligence_score(item.get("score"))
+    return f"{item['provider']}: {item['id']} (Intelligence-Score {score})"
 
 
 def _make_entry(
@@ -827,13 +1043,13 @@ def _make_entry(
         limit_text += f"; Modell-Kontingent {limits[0]}/Monat"
     if billing_provider == "zen":
         limit_text += "; Pay-as-you-go"
-    score_text = f"{score:.2f}/100" if score is not None else "unverified"
+    score_text = _format_intelligence_score(score)
     exception_text = " · Free-Ausnahme" if selection_reason == "user_pinned_free_exception" else ""
-    entry["display_name"] = f"{label} · {price_text} · Score {score_text}{exception_text}{limit_text}"
-    benchmark_source = "artificial-analysis" if score is not None else "unverified"
+    entry["display_name"] = f"{label} · {price_text} · Intelligence-Score {score_text}{exception_text}{limit_text}"
+    benchmark_source = "AA" if score is not None else "unverified"
     entry["description"] = (
-        f"{label} — {identifier}; {price_text}{limit_text}; Benchmarkscore {score_text}; "
-        f"Auswahlgrund {selection_reason}; "
+        f"{label} — {identifier}; {price_text}{limit_text}; AA-Intelligence-Score {score_text}; "
+        f"Auswahl: {selection_reason}; "
         f"Basis: {method}; benchmark_source={benchmark_source}; "
         f"transport_source={transport}; price_source={price_source}"
     )
@@ -877,32 +1093,33 @@ def load_native_catalog_template(
     if template_path is not None:
         raise CatalogError(f"Codex-Native-Katalog nicht lesbar: {selected_path}")
 
+    # --bundled bypasses the configured model_catalog_json. A plain
+    # `codex debug models` would return the proxy's own routes (or whatever
+    # catalog Codex currently points at), which is not a native template.
+    command = [codex_bin, "debug", "models", "--bundled"]
     try:
         result = subprocess.run(
-            [codex_bin, "debug", "models"],
+            command,
             capture_output=True,
             text=True,
             timeout=CODEX_TEMPLATE_TIMEOUT_SEC,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise CatalogError(
-            "Codex-Native-Katalog fehlt; --template angeben oder Codex CLI installieren"
-        ) from error
+        raise CatalogError("Codex-Native-Katalog fehlt; --template angeben oder Codex CLI installieren") from error
     if result.returncode != 0:
         detail = " | ".join(line.strip() for line in (result.stderr or "").splitlines()[:3] if line.strip())
         raise CatalogError(
-            f"{codex_bin} debug models exited {result.returncode}"
-            + (f": {detail}" if detail else "")
+            f"{codex_bin} debug models --bundled exited {result.returncode}" + (f": {detail}" if detail else "")
         )
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as error:
-        raise CatalogError("codex debug models lieferte kein gueltiges JSON.") from error
+        raise CatalogError("codex debug models --bundled lieferte kein gueltiges JSON.") from error
     templates = _template_models(payload)
     return templates, {
-        "source": "codex-debug-models",
-        "command": [codex_bin, "debug", "models"],
+        "source": "codex-debug-models-bundled",
+        "command": command,
         "stdout_sha256": hashlib.sha256(result.stdout.encode("utf-8")).hexdigest(),
     }
 
@@ -913,20 +1130,26 @@ def build_catalog_data(
     template_path: Path | None,
     codex_dir: Path,
     aa_snapshot_path: Path | None = None,
+    live_snapshot_path: Path | None = None,
+    persist_live_snapshot: bool = True,
     input_price_limit: Decimal = INPUT_PRICE_LIMIT,
     min_calibrated_score: float = MIN_CALIBRATED_SCORE,
     proxy_models_url: str | None = None,
     codex_bin: str = "codex",
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    aa_key = os.environ.get("ARTIFICIAL_ANALYSIS_API_KEY")
-    if not aa_key:
-        raise CatalogError("ARTIFICIAL_ANALYSIS_API_KEY ist nicht gesetzt.")
-    aa_rows, aa_source = fetch_aa_models(aa_key)
-    aa_snapshot_rows, aa_snapshot_source = fetch_aa_snapshot(aa_snapshot_path or default_aa_snapshot_path())
+    population = load_aa_population(
+        live_snapshot_path=live_snapshot_path or default_live_snapshot_path(),
+        dated_snapshot_path=aa_snapshot_path or default_aa_snapshot_path(),
+        api_key=os.environ.get("ARTIFICIAL_ANALYSIS_API_KEY"),
+        persist_live_snapshot=persist_live_snapshot,
+    )
+    aa_rows, aa_source = population.rows, population.source
+    aa_snapshot_rows, aa_snapshot_source = population.snapshot_rows, population.snapshot_source
     or_rows, or_source = fetch_openrouter_models(os.environ.get("OPENROUTER_API_KEY"))
     # OpenRouter benchmark transport is intentionally not part of picker
-    # scoring. The picker uses only AA Intelligence, with the dated snapshot
-    # as a population fallback when live Intelligence is unusable.
+    # scoring. The picker uses only AA Intelligence, with the rolling live
+    # snapshot (then the dated snapshot) as population fallback when live
+    # Intelligence is unusable.
     or_metrics: dict[str, dict[str, float]] = {}
     or_benchmark_source = {
         "status": "disabled",
@@ -1004,7 +1227,7 @@ def build_catalog_data(
 
     ranges, range_sources = calibration_populations(aa_rows, aa_snapshot_rows)
     if not ranges:
-        raise CatalogError("Artificial Analysis: keine verwendbare Intelligence-Index-Population vorhanden.")
+        raise CatalogError("AA: keine verwendbare Intelligence-Index-Population vorhanden.")
 
     proxy_by_slug = {str(entry["slug"]): entry for entry in proxy_entries if isinstance(entry.get("slug"), str)}
     candidates: list[dict[str, Any]] = []
@@ -1225,6 +1448,14 @@ def build_catalog_data(
     by_provider: dict[str, list[dict[str, Any]]] = {provider: [] for provider in names}
     for candidate in candidates:
         by_provider[candidate["provider"]].append(candidate)
+    deduplicated: dict[str, list[str]] = {}
+    for provider, items in by_provider.items():
+        kept, dropped = _dedupe_reasoning_variants(items)
+        by_provider[provider] = kept
+        if dropped:
+            deduplicated[provider] = [str(item["id"]) for item in dropped]
+    # The audit's model list mirrors the written catalogs, not the pre-dedupe set.
+    candidates = [item for items in by_provider.values() for item in items]
     catalogs: dict[str, dict[str, Any]] = {}
     for provider, selected in by_provider.items():
         selected.sort(key=lambda item: _candidate_sort_key(provider, item))
@@ -1252,13 +1483,16 @@ def build_catalog_data(
             "calibration": "AA Intelligence Index as a Min-Max scale over all usable values in the selected AA population before provider price filtering (minimum=0, maximum=100, clamping outside the observed range); populations with fewer than two values or all-zero values are unusable",
             "score_policy": (
                 "Only calibrated AA Intelligence Index is selectable. Use the live AA population; "
-                "use the dated AA snapshot only when the live Intelligence population is absent or all zero. "
+                "when the live fetch fails or its Intelligence population is absent or all zero, "
+                "use the rolling live snapshot, then the dated AA snapshot. "
                 "Coding/Agentic composites and OpenRouter benchmark transport are not score fallbacks."
             ),
         },
         "sources": {
             "artificial_analysis": aa_source,
             "artificial_analysis_snapshot": aa_snapshot_source,
+            "artificial_analysis_live_snapshot": population.live_snapshot_source,
+            "artificial_analysis_dated_snapshot": population.dated_snapshot_source,
             "openrouter_models": or_source,
             "openrouter_benchmarks": or_benchmark_source,
             "opencode_proxy": proxy_source,
@@ -1276,6 +1510,7 @@ def build_catalog_data(
             for key, values in ranges.items()
         },
         "selection_diagnostics": diagnostics,
+        "deduplicated_reasoning_variants": deduplicated,
         "openrouter_benchmark_identity_diagnostics": benchmark_identity_diagnostics,
         "evaluated_candidates": evaluated,
         "model_counts": {key: len(value) for key, value in by_provider.items()},
@@ -1352,7 +1587,10 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
         type=_parse_input_price_limit,
         default=INPUT_PRICE_LIMIT,
         metavar="USD_PER_M",
-        help="strikte Obergrenze pro 1 Mio. Input-Token; Modellpreis muss darunter liegen (Standard: 0.25)",
+        help=(
+            "strikte Obergrenze pro 1 Mio. Input-Token; Dezimalzahl in USD ohne "
+            f"Waehrungssymbol oder Einheit, z. B. 0.30 (Standard: {INPUT_PRICE_LIMIT})"
+        ),
     )
     parser.add_argument(
         "--min-intelligence-score",
@@ -1361,17 +1599,27 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
         type=_parse_min_calibrated_score,
         default=MIN_CALIBRATED_SCORE,
         metavar="SCORE",
-        help="exklusive Mindestschwelle fuer den skalierten AA Intelligence Index, Bereich 0..100 (Standard: 50)",
+        help=(
+            "exklusive Mindestschwelle fuer den normierten AA-Intelligence-Index; "
+            "Zahl von 0 bis 100 auf der Min-Max-Skala, z. B. 45 "
+            f"(Standard: {MIN_CALIBRATED_SCORE:g})"
+        ),
     )
     parser.add_argument(
         "--aa-snapshot",
         type=Path,
         default=default_aa_snapshot_path(),
-        help="lokaler AA-Snapshot als befristeter Fallback fuer fehlende Intelligence-Population",
+        help=(
+            "lokaler AA-Snapshot als befristeter Fallback fuer fehlende "
+            "Intelligence-Population; zusaetzlich wird jeder erfolgreiche Live-Abruf "
+            "als rollierender Snapshot unter tools/codex-picker/data/ gespeichert"
+        ),
     )
     parser.add_argument("--out-dir", type=Path, default=codex_dir, help="Zielordner (Standard: CODEX_HOME)")
     parser.add_argument("--out", type=Path, help="Exakter Ausgabepfad, nur fuer einen Provider")
-    parser.add_argument("--check", action="store_true", help="Quellen live pruefen und Auswahl anzeigen, nichts schreiben")
+    parser.add_argument(
+        "--check", action="store_true", help="Quellen live pruefen und Auswahl anzeigen, nichts schreiben"
+    )
     parser.add_argument(
         "--template",
         type=Path,
@@ -1404,6 +1652,7 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
             template_path=args.template,
             codex_dir=codex_dir,
             aa_snapshot_path=args.aa_snapshot,
+            persist_live_snapshot=not args.check,
             input_price_limit=args.input_price_limit,
             min_calibrated_score=args.min_calibrated_score,
             proxy_models_url=args.proxy_url,
@@ -1439,12 +1688,17 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
         print(
             f"  {provider} Diagnose: {counts['under_price_limit']} guenstig, "
             f"{counts['direct_aa_identity_match']} AA-IDs exakt/kanonisch gematcht, "
-            f"{counts['score_available']} Scores verfuegbar, hoechster Score {counts['highest_score']}, "
+            f"{counts['score_available']} Scores verfuegbar, hoechster Score {_format_intelligence_score(counts['highest_score'])}, "
             f"{counts['selected']} ausgewaehlt"
         )
+    aa_source = audit["sources"]["artificial_analysis"]
+    aa_text = (
+        f"AA {aa_source['row_count']} Modelle / {aa_source['page_count']} Seiten"
+        if aa_source.get("row_count") is not None
+        else f"AA nicht abgerufen ({aa_source.get('reason') or aa_source.get('status')})"
+    )
     print(
-        f"Daten: AA {audit['sources']['artificial_analysis']['row_count']} Modelle / "
-        f"{audit['sources']['artificial_analysis']['page_count']} Seiten; "
+        f"Daten: {aa_text}; "
         f"OpenRouter {audit['sources']['openrouter_models']['row_count']} Modelle; "
         f"Proxy {audit['sources']['opencode_proxy']['cached_provider_model_count']} Go-/Zen-Routen"
     )
@@ -1452,11 +1706,15 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
     print(
         f"AA-Snapshot: {snapshot['status']}"
         + (
-            f", {snapshot['row_count']} Modelle, {snapshot['age_days']} Tage alt"
+            f", {snapshot['file_name']}, {snapshot['row_count']} Modelle, {snapshot['age_days']} Tage alt"
             if "row_count" in snapshot and "age_days" in snapshot
             else ""
         )
     )
+    if aa_source.get("row_count") is None:
+        print("Warnung: AA-Abruf fehlgeschlagen; die Auswahl stuetzt sich auf den Snapshot.")
+    elif aa_source.get("snapshot", {}).get("status") == "write_failed":
+        print(f"Warnung: Live-Snapshot nicht geschrieben: {aa_source['snapshot']['reason']}")
     for index in INDEX_NAMES:
         population = audit["calibration_populations"].get(index)
         if population:
@@ -1481,7 +1739,7 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
             if top:
                 print(
                     f"  {provider} Top verfuegbare Scores: "
-                    + "; ".join(f"{item['id']}={item['score']:.2f}" for item in top)
+                    + "; ".join(f"{item['id']}={_format_intelligence_score(item['score'])}" for item in top)
                 )
         free_exceptions = [
             item for item in audit["models"] if item.get("selection_reason") == "user_pinned_free_exception"
@@ -1489,7 +1747,7 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
         if free_exceptions:
             print("  Angeheftete Free-Ausnahmen:")
             for item in free_exceptions:
-                print(f"    {item['provider']}: {item['id']} (Benchmark unverified)")
+                print(f"    {_free_exception_display(item)}")
         if not audit["sources"]["opencode_proxy"].get("live_verified") and not args.allow_cached_proxy:
             print("Abbruch: Live-Pruefung verlangt einen erreichbaren Proxy oder --allow-cached-proxy.")
             return 1

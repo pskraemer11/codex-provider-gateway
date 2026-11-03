@@ -74,9 +74,9 @@ des Workspace).
 |                           | A Console direkt   | B Zen direkt | C go-proxy          | D LiteLLM                | E getrennt lassen |
 | ------------------------- | ------------------ | ------------ | ------------------- | ------------------------ | ----------------- |
 | Go-Modelle                | ~8 (nur Responses) | 0            | alle 38             | alle (via Chat-Bridge)   | –                 |
-| Claude/Gemini/GLM/Kimi    | ✗                  | ✗            | ✓                   | ✓                        | nur in OpenCode   |
-| Zusatzprozess             | ✗                  | ✗            | ✓                   | ✓                        | ✗                 |
-| Drittsoftware im Key-Pfad | ✗                  | ✗            | klein, 1 Maintainer | groß, 109 Abhängigkeiten | ✗                 |
+| Claude/Gemini/GLM/Kimi    | X                  | X            | ✓                   | ✓                       | nur in OpenCode   |
+| Zusatzprozess             | X                  | X            | ✓                   | ✓                       | X                 |
+| Drittsoftware im Key-Pfad | X                  | X            | klein, 1 Maintainer | groß, 109 Abhängigkeiten | X                 |
 | Session pro Konversation  | Codex-eigene       | –            | ja, pro Thread      | nein, statisch           | –                 |
 | Aufwand                   | 5 Min              | 5 Min        | 30–60 Min           | 1–2 h                    | 0                 |
 
@@ -102,12 +102,13 @@ it; preserve the session header when forwarding requests.“
 
 Daraus folgt für die Werkzeuge:
 
-| Weg              | Session-Verhalten                                                                                                                                              |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A (direkt)       | Codex sendet seinen nativen Header, Go erkennt ihn                                                                                                             |
-| C (go-proxy)     | erzeugt pro Thread eine `ses_`-ID                                                                                                                              |
-| D (LiteLLM)      | `extra_headers` ist statisch; `forward_client_headers_to_llm_api` reicht nur `x-*`-Header durch, Codex' `session_id` ist ein einfacher Header und fällt heraus |
-| D + eigener Hook | möglich, aber dann ist es wieder Eigenbau                                                                                                                      |
+| Weg              | Session-Verhalten                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------|
+| A (direkt)       | Codex sendet seinen nativen Header, Go erkennt ihn                                        |
+| C (go-proxy)     | erzeugt pro Thread eine `ses_`-ID                                                         |
+| D (LiteLLM)      | `extra_headers` ist statisch; `forward_client_headers_to_llm_api` reicht nur `x-*`-Header |
+|                  |    durch, Codex' `session_id` ist ein einfacher Header und fällt heraus                   |
+| D + eigener Hook | möglich, aber dann ist es wieder Eigenbau                                                 |
 
 Der Cache ist kein Detail, sondern der größte Einzelposten. DeepSeek V4.1 Flash
 kostet off-peak 0,15 USD/1M Input und 0,003 USD/1M Cache-Read — Faktor 50 pro
@@ -121,27 +122,27 @@ ID vergibt, ist billiger als jede Nachbesserung.
 
 Tokenpreise in USD je 1M, Monatslimit = Go-Plan (nicht Go Plus).
 
-| Modell                     | Input | Output | Cache-Read | Monatslimit |
-| -------------------------- | ----- | ------ | ---------- | ----------- |
-| DeepSeek V4.1 Flash        | 0,15  | 0,60   | 0,003      | 80 USD      |
-| DeepSeek V4 Pro            | 0,66  | 1,98   | 0,022      | 15 USD      |
-| GLM-5.3-Flash              | 0,15  | 0,50   | 0,03       | 60 USD      |
-| GLM-5.3                    | 1,40  | 4,40   | 0,26       | 15 USD      |
-| Qwen3.8 Flash              | 0,15  | 0,47   | 0,016      | 30 USD      |
-| Qwen3.8 Max                | 2,00  | 6,00   | 0,25       | 15 USD      |
-| MiniMax M3                 | 0,30  | 1,20   | 0,06       | 60 USD      |
-| MiniMax M3.1 Flash         | 0,15  | 0,60   | 0,015      | 20 USD      |
-| Kimi K2.7 Code             | 0,95  | 4,00   | 0,19       | 60 USD      |
-| MiMo-V2.6-Flash            | 0,14  | 0,28   | 0,0028     | 60 USD      |
-| MiMo-V2.6-Pro              | 0,435 | 0,87   | 0,0036     | 15 USD      |
-| LongCat-2.0                | 0,30  | 1,20   | 0,006      | 60 USD      |
-| GPT 6 Luna                 | 0,10  | 0,50   | 0,01       | 15 USD      |
-| GPT 5.6 Luna               | 0,20  | 1,20   | 0,02       | 15 USD      |
-| Claude Haiku 5.5           | 0,10  | 0,50   | 0,01       | 15 USD      |
-| Grok 4.7                   | 2,00  | 6,00   | 0,50       | 15 USD      |
-| Kimi K3                    | 3,00  | 15,00  | 0,30       | 15 USD      |
-| Gemini 4 Argon             | 4,00  | 20,00  | 0,20       | 30 USD      |
-| Muse Spark 1.3 Contributor | 0,10  | 0,20   | 0,002      | 60 USD      |
+| Modell                     | Input  | Output | Cache-Read | Monatslimit |
+| -------------------------- | ------ | ------ | ---------- | ----------- |
+| DeepSeek V4.1 Flash        |  0,15  |  0,60  |  0,003     |  80 USD     |
+| DeepSeek V4 Pro            |  0,66  |  1,98  |  0,022     |  15 USD     |
+| GLM-5.3-Flash              |  0,15  |  0,50  |  0,03      |  60 USD     |
+| GLM-5.3                    |  1,40  |  4,40  |  0,26      |  15 USD     |
+| Qwen3.8 Flash              |  0,15  |  0,47  |  0,016     |  30 USD     |
+| Qwen3.8 Max                | [2,00] |  6,00  |  0,25      |  15 USD     |
+| MiniMax M3                 |  0,30  |  1,20  |  0,06      |  60 USD     |
+| MiniMax M3.1 Flash         |  0,15  |  0,60  |  0,015     |  20 USD     |
+| Kimi K2.7 Code             |  0,95  |  4,00  |  0,19      |  60 USD     |
+| MiMo-V2.6-Flash            |  0,14  |  0,28  |  0,0028    |  60 USD     |
+| MiMo-V2.6-Pro              |  0,435 |  0,87  |  0,0036    |  15 USD     |
+| LongCat-2.0                |  0,30  |  1,20  |  0,006     |  60 USD     |
+| GPT 6 Luna                 |  0,10  |  0,50  |  0,01      |  15 USD     |
+| GPT 5.6 Luna               |  0,20  |  1,20  |  0,02      |  15 USD     |
+| Claude Haiku 5.5           |  0,10  |  0,50  |  0,01      |  15 USD     |
+| Grok 4.7                   | [2,00] |  6,00  |  0,50      |  15 USD     |
+| Kimi K3                    | [3,00] | 15,00  |  0,30      |  15 USD     |
+| Gemini 4 Argon             | [4,00] | 20,00  |  0,20      |  30 USD     |
+| Muse Spark 1.3 Contributor |  0,10  |  0,20  |  0,002     |  60 USD     |
 
 Tageszeit: DeepSeek Peak ist 01:00–04:00 und 06:00–10:00 UTC, Mo–Fr; alles
 andere ist off-peak (Peak kostet das Doppelte).
@@ -240,6 +241,13 @@ ab).
    `OPENCODE_GO_API_KEY` aus seinem eigenen Environment; Codex sendet fuer die
    ChatGPT-authentifizierte Desktop-Sitzung den bestehenden Bearer, den der
    Proxy nicht an Go weiterreicht.
+
+   **Nachtrag 03.11.2026:** Die Provider-Tabelle des Windows-Switchers
+   (`[model_providers.opencode-proxy]`) folgt jetzt derselben Form
+   (`requires_openai_auth = true`, kein `env_key`). `config enable` schreibt sie
+   fuer `opencode-go` und `zen` ebenfalls so; `doctor` warnt bei `env_key`.
+   Vorher wich der Switcher-Pfad vom hier dokumentierten Desktop-Setup ab, was
+   Plugin-Schalter wieder auf HTTP 432 laufen liess.
 
 3. **Overlay-Profil** `~/.codex/go.config.toml` (drei Zeilen: `model_provider`,
    `model`, `model_catalog_json` → `~/.codex/go-catalog.json`). Das Profil ist

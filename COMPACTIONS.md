@@ -69,3 +69,98 @@
 ## Worktree Preservation / Next Move
 - Existing staged and unstaged Picker edits and generated CSV/XLSX/snapshot artifacts were preserved; no staging or cleanup was performed. `tests/test_make_release.py` is a new focused regression test file; no persistent switcher test file was added.
 - Next: the user's separate Smoke-Live provider check can exercise the running integration; it was intentionally left to the user and no provider quota was consumed here.
+
+=============== Compaction 02.11.2026 / 17:27 ================
+## Objective
+- **Current:** Review why OpenCode Go and Zen models appear in the catalog but allegedly do not connect through the local proxy.
+- **Completed:** Read-only source, runtime, log, config, catalog, test, and documentation review; no provider request was initiated for this review.
+
+## Important Details
+- **Current routing bypass (P1 setup defect):** Codex currently uses `model_provider = "openrouter"` and `picker-catalog.json`; `openai_base_url` is unset and `config status` reports disabled. A displayed catalog therefore does not imply proxy traffic. Backups show the proxy was active at 15:55 and OpenRouter was restored at 16:08.
+- **Go works:** `opencode-go/gpt-6-luna` reached `https://opencode.ai/zen/go/v1/responses` and completed with `opencode-go.done`; metering records HTTP 200. The blanket claim that Go routing cannot connect is disproved.
+- **Zen connects but is quota-blocked:** `zen/deepseek-v4.1-flash-free` reached `https://opencode.ai/zen/v1/chat/completions`; OpenCode returned HTTP 429 `FreeUsageLimitError`. This is an account/quota condition, not a failed proxy connection.
+- **Bare-Zen defect (P1/P2):** `route_target("gpt-5.6-terra")` can select Zen, but `ensure_zen_slug()` then rejects the same bare slug with HTTP 400. Live log confirms this contradiction. Tests cover routing and prefixed Zen separately, but not app-level dispatch of a bare Zen-only ID.
+- **Native capture:** `native-models.json` is empty because `codex debug models` rendered the active OpenRouter catalog. Empty native capture can make bare slugs fall into Zen classification.
+- **Setup and diagnostics:** `config enable` and `switch-provider.ps1 -Target proxy` produce different provider states; `doctor` validates `openai_base_url` but not the active `model_provider`. The packaged skill also describes obsolete fallback and non-loopback behavior.
+
+## Work State
+### Completed / Active / Blocked
+- Completed: Full suite passed (`1043 passed, 6 skipped, 16 subtests`); Ruff check passed. Review findings are documented here.
+- Active: No source or Codex configuration was changed.
+- Blocked: Implementation awaits an explicit fix request.
+
+## Next Move
+1. Add an app-level bare-Zen regression test and normalize or reject the slug at one routing boundary.
+2. Make `doctor` and setup guidance validate provider selection, and add a non-empty-capture guard.
+
+## Relevant Files
+- `src/opencode_go_proxy/routing.py`, `zen_upstream.py`, `app.py`: contradictory bare-Zen routing.
+- `src/opencode_go_proxy/config_manager.py`, `ops.py`, `tools/codex-picker/switch-provider.ps1`: divergent setup and incomplete diagnostics.
+- `src/opencode_go_proxy/native_models.py`: empty capture from the active non-native catalog.
+- `skills/opencode-go-proxy/SKILL.md`: stale operational contract.
+
+## Important Context
+- Review evidence includes local proxy logs, usage metering, config backups, current `config.toml`, state catalogs, and the full test suite. Credentials and raw authorization values were not exposed.
+
+=============== Compaction 03.11.2026 / Provider-Auth, Doctor, Native-Capture, Updater, Schwelle 45 ================
+## Objective
+- **Current:** Resolve the three runtime findings from the 02.11. review plus the `opencode-proxy` provider-table contradiction and the open `PLANUNG.md` items.
+- **Completed:** Provider tables emit `requires_openai_auth`; `doctor` validates both setup paths and the catalogued model; native capture uses the bundled catalog; the update check follows the fork with a tag fallback; the picker threshold is `45`; docs, skill, changelog and PLANUNG are updated.
+
+## Important Details
+- **Provider auth:** `config_manager._block_lines` and the switcher's `[model_providers.opencode-proxy]` now set `requires_openai_auth = true` and no `env_key`. Rationale: Codex Desktop refuses plugin toggles with HTTP 432 when the active provider is `env_key`-keyed. `doctor.check_provider_auth` warns for proxy-routed tables only — a direct `opencode-go` table pointing at `opencode.ai` keeps `env_key` legitimately.
+- **Doctor config check:** `check_config` parses `config.toml` with `tomllib`, accepts the managed root `openai_base_url` path *and* the switcher path (`model_provider` + table whose `base_url` is loopback:8787), then fails when the selected `model` is absent from `model_catalog_json`.
+- **Native capture:** `codex debug models` renders the configured `model_catalog_json` (3 zen-free routes while the proxy catalog was active) and collapsed the native set to 0. `codex debug models --bundled` returns the binary's 12 models; 10 survive the Go-collision filter (`gpt-5.6-luna`, `gpt-6-luna` are Go-owned). The picker's template fallback uses the same flag.
+- **Threshold:** `catalog_rules.MIN_CALIBRATED_SCORE = 45.0`. `zen/gpt-6-luna` has AA raw 27.8 → calibrated ≈45.14, so the old `>50` policy dropped the actively selected model from `proxy-catalog.json`. Rebuild produced 8 proxy routes including `zen/gpt-6-luna` and `opencode-go/gpt-6-luna` (47.0).
+- **Updater:** release channel is the fork `pskraemer11/codex-provider-gateway`. The fork has tags but no GitHub releases (`/releases/latest` → 404), so `_fetch_latest_release` falls back to `/tags?per_page=1` and synthesizes the tag URL.
+
+## Work State
+### Completed / Active / Blocked
+- Completed: focused suite `192 passed, 1 skipped`; full suite `1061 passed, 6 skipped, 16 subtests`; `uvx ruff==0.17.3 check .` clean; changed files format-clean; PowerShell fixture tests pass. Live: `proxy-catalog.json` (8), `native-models.json` (10), `merged-models.json` (120 = 78 zen + 32 go + 10 native), `/v1/models` 120, `doctor --json` `ok: true`, `switch-provider.ps1 -Check` ok, `update --force` → up to date against fork tag `v0.4.10`.
+- Active: none.
+- Blocked: none.
+
+## Verification Notes
+- The first full-suite run had one failure, `test_catalog_local.py::test_models_endpoint_grows_after_refresh_without_restart`; it passed alone, in its file, and in the repeated full suite. Cause is the Windows file-time granularity behind `protocol._CATALOG_CACHE`'s `st_mtime_ns` key: two renders inside one timestamp tick share the key. Pre-existing flake, not caused by this change.
+- `uvx ruff==0.17.3 format --check .` reports 65 pre-existing unformatted files (e.g. `tests/test_streaming.py`, `tests/test_vision.py`) that were not touched here; the 12 changed Python files are format-clean. The subproject gate runs `ruff check`, not `format --check`.
+- `switch-provider.ps1` diagnostics use `Write-Output` so `-Check` output is capturable by the fixture test; `Write-Host` bypassed the pipeline.
+- No live model inference was issued (no provider quota consumed). The proxy started for the catalog rebuild was stopped again afterwards.
+
+## Next Move
+1. Codex Desktop UI check of the picker with the rebuilt `proxy-catalog.json`; the CLI evidence does not prove UI behaviour.
+2. Re-check `COMPACTIONS` claims about quota/logs with current redacted data before acting on them.
+
+## Relevant Files
+- `src/opencode_go_proxy/config_manager.py`, `ops.py`, `native_models.py`, `updates.py`: the four code changes.
+- `tools/codex-picker/catalog_rules.py`, `build_provider_catalogs.py`, `switch-provider.ps1`: threshold, bundled template, check reporting.
+- `~/.codex/config.toml`: `[model_providers.opencode-proxy]` fixed, backup `config.toml.backup-20261103-150702-before-provider-auth`.
+- `PLANUNG.md`, `CHANGELOG.md`, `README.md`, `README_de.md`, `skills/opencode-go-proxy/SKILL.md`, picker `README.md`/`METHODOLOGY.md`, `docs/OpenCode Go und Zen in Codex 20261025.md`.
+
+## Important Context
+- Unrelated working-tree changes were preserved, including the deletion of `docs/Codex vs. OpenCoden Vergleich bzgl Sicherheit.md` and the modified `zen_upstream.py`, watchdog/installer scripts and `Status Quo … 20261103.md`.
+- `staging/fix_proxy_provider.py` is the one-off config script (gitignored directory).
+
+=============== Compaction 03.11.2026 / Katalog-Redaktion, Preis-Default 0.30 ================
+## Objective
+- **Current:** Editorial pass over the generated catalogs plus a wider default price window.
+- **Completed:** `description` uses `Auswahl: <reason>`; visible text and console abbreviate Artificial Analysis as `AA`; `INPUT_PRICE_LIMIT` is `0.30`; `--help` documents the input format of both selection options.
+
+## Important Details
+- **Scope of the AA abbreviation:** catalog `description`, transport labels (`AA Data API`, `dated AA snapshot`), `benchmark_source=AA` in the description, builder error messages (`AA: …`), and the picker docs. Machine provenance in the audit stays `artificial-analysis` / `artificial-analysis-data-api` / `artificial-analysis-local-snapshot`, because `export_review_csv.py` and the CSV contract pass those values through unchanged.
+- **Default price window:** `catalog_rules.INPUT_PRICE_LIMIT = Decimal("0.30")`, strict `<`. Score policy unchanged at calibrated `> 45/100`. The builder interpolates both defaults into `--help` so the text cannot drift from the constants.
+- **Selection effect:** rebuild kept 8 proxy routes (3 go, 5 zen, 8 openrouter). Evaluated cheap candidates grew from 129→149 (OpenRouter) and 14→15 (Zen) without a new qualifying model.
+- **Rolling AA snapshot:** every successful live fetch is written atomically to `tools/codex-picker/data/artificial-analysis-live-snapshot.json` (748,054 bytes, git-ignored). `load_aa_population()` owns the order live → rolling snapshot → dated snapshot; `--check` passes `persist_live_snapshot=False`, so the documented "writes nothing" contract holds. The audit gains `sources.artificial_analysis.snapshot` (write receipt), `artificial_analysis_live_snapshot`, and `artificial_analysis_dated_snapshot`.
+- **Reasoning levels:** AA rows are grouped by base model (`-low` … `-max`, `-reasoning`, `-non-reasoning`, `-minimal` stripped) and the highest Intelligence value wins, for both the per-model score and the calibration population (live 94 → 47 values). The base slug is not always the strongest level (`gemini-3-5-flash-medium` beat its base in the 2026-10-13 snapshot). Product suffixes such as `-pro` stay separate.
+- **One entry per base model:** each catalog lists a model once per provider route; reasoning intensity stays `supported_reasoning_levels`/`default_reasoning_level`. `_dedupe_reasoning_variants()` keys on `(vendor, base)` — `opencode-go/` and `zen/` are distinct billing routes and are not merged — and records dropped ids in `deduplicated_reasoning_variants`. An earlier cross-provider key briefly reduced `proxy-catalog.json` from 8 to 6 models; the corrected key restored 8/3/5/8.
+- **Threshold reconciliation:** the user's 8-model OpenRouter catalog is an AA v4.3 figure at `> 50/100`. Live v5 at `> 50/100` gives 5 (3 scored + 2 free), at `> 45/100` gives 8. Live-first is confirmed as policy; the score threshold is the adjustment knob if a future population yields too few models.
+
+## Work State
+- Completed: full suite `1079 passed, 6 skipped, 16 subtests`; `uvx ruff==0.17.3 check .` clean; the changed Python files format-clean; live rebuild written to `~/.codex/{picker,go,zen,proxy}-catalog.json` plus `provider-catalog-audit.json` with backups `*.backup-20261103-161902`; proxy catalog 8 entries with no duplicate `(vendor, base)` pair; calibration population 47 models (1.8..59.4); snapshot sha256 `96daf691…` matched the effective fallback; loader verify exit 0.
+- Active: none. Blocked: none.
+
+## Next Move
+1. Optional: decide whether the audit's machine value `benchmark_source=artificial-analysis` should also become `AA`; that changes the CSV contract.
+2. Codex Desktop UI check with the rebuilt catalog.
+
+## Relevant Files
+- `tools/codex-picker/catalog_rules.py`, `build_provider_catalogs.py`, `tests/test_codex_picker_selection.py`, `CHANGELOG.md`, `PLANUNG.md`, `README.md`, `README_de.md`, picker `README.md`/`METHODOLOGY.md`.

@@ -33,7 +33,12 @@ Json = dict[str, Any]
 # mirrors point the check at a local fixture).
 GITHUB_API_ENV = "OPENCODE_GO_PROXY_GITHUB_API"
 DEFAULT_GITHUB_API = "https://api.github.com"
-RELEASES_LATEST_PATH = "/repos/kartikkabadi/opencode-go-proxy/releases/latest"
+# The fork is the release channel: installing an upstream release would
+# replace the local Go family patches (see go_models.py) with upstream code.
+RELEASE_REPO = "pskraemer11/codex-provider-gateway"
+RELEASES_LATEST_PATH = f"/repos/{RELEASE_REPO}/releases/latest"
+RELEASES_TAGS_PATH = f"/repos/{RELEASE_REPO}/tags?per_page=1"
+RELEASE_TAG_URL = f"https://github.com/{RELEASE_REPO}/releases/tag"
 
 # How long a cached check stays fresh; OPENCODE_GO_PROXY_UPDATE_TTL_HOURS
 # overrides the default (0 disables the cache so every call re-checks).
@@ -50,9 +55,7 @@ USER_AGENT = f"opencode-go-proxy/{__version__}"
 
 # updates.py lives at <repo>/src/opencode_go_proxy/updates.py; the git work
 # tree root is three levels up.
-_REPO_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-)
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @dataclass
@@ -139,19 +142,35 @@ def _is_newer(latest: str | None, current: str) -> bool:
     return latest_key > current_key
 
 
-def _fetch_latest_release(timeout: int) -> Json:
-    """GET /releases/latest; returns the release object or raises.
+def _get_github_json(url: str, timeout: int) -> object:
+    """GET a GitHub API URL with the proxy's user agent."""
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=timeout) as resp:
+        return json.load(resp)
 
-    The endpoint answers a single release object; a list (some mirrors and
-    test fixtures) is tolerated by taking the first entry.
+
+def _fetch_latest_release(timeout: int) -> Json:
+    """GET /releases/latest, falling back to the newest tag.
+
+    The fork publishes tags; a GitHub release object may not exist yet. The
+    tag fallback keeps the check useful in that state and yields to the
+    release object as soon as one is published.
     """
     base = (os.environ.get(GITHUB_API_ENV) or DEFAULT_GITHUB_API).rstrip("/")
-    request = urllib.request.Request(
-        f"{base}{RELEASES_LATEST_PATH}",
-        headers={"User-Agent": USER_AGENT},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as resp:
-        payload = json.load(resp)
+    try:
+        payload = _get_github_json(f"{base}{RELEASES_LATEST_PATH}", timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        payload = None
+    if payload is None:
+        tags = _get_github_json(f"{base}{RELEASES_TAGS_PATH}", timeout)
+        if not isinstance(tags, list) or not tags or not isinstance(tags[0], dict):
+            raise ValueError("release channel has no release or tag")
+        tag = tags[0].get("name")
+        if not isinstance(tag, str) or not tag:
+            raise ValueError("release channel tag has no name")
+        return {"tag_name": tag, "html_url": f"{RELEASE_TAG_URL}/{tag}"}
     if isinstance(payload, list):
         payload = payload[0] if payload else {}
     if not isinstance(payload, dict):
@@ -242,12 +261,14 @@ def _info_from_error(current: str, cached: Json | None, exc: Exception) -> Updat
     )
     # Persist the failure so an offline /state serves the error shape from
     # cache instead of blocking on a timed-out fetch on every poll.
-    _write_cache({
-        "checked_at": checked_at,
-        "latest": latest_str,
-        "release_url": info.release_url,
-        "error": info.error,
-    })
+    _write_cache(
+        {
+            "checked_at": checked_at,
+            "latest": latest_str,
+            "release_url": info.release_url,
+            "error": info.error,
+        }
+    )
     return info
 
 
@@ -280,12 +301,14 @@ def check_for_updates(force: bool = False, timeout: int = 8) -> UpdateInfo:
         error=None,
     )
     info.available = _is_newer(info.latest, current)
-    _write_cache({
-        "checked_at": info.checked_at,
-        "latest": info.latest,
-        "release_url": info.release_url,
-        "error": None,
-    })
+    _write_cache(
+        {
+            "checked_at": info.checked_at,
+            "latest": info.latest,
+            "release_url": info.release_url,
+            "error": None,
+        }
+    )
     return info
 
 
@@ -323,4 +346,3 @@ def version_payload(force: bool = False) -> Json:
             "release_url": info.release_url,
         },
     }
-

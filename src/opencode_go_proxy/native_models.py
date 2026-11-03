@@ -1,8 +1,14 @@
-"""Native Codex model capture: snapshot `codex debug models` to the state dir.
+"""Native Codex model capture: snapshot the bundled Codex catalog to the state dir.
 
 The native catalog (official GPT models plus whatever else the installed Codex
 CLI serves) is captured once per state dir. Routing, the merged catalog, and
 the native passthrough meter all read this snapshot.
+
+``codex debug models`` renders the *configured* catalog, so with
+``model_catalog_json`` pointing at a proxy catalog the command lists only
+``opencode-go/`` and ``zen/`` routes and the capture collapses to zero native
+models. ``codex debug models --bundled`` bypasses the configured catalog and
+dumps the models shipped with the binary, which is the stable native set.
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ Json = dict[str, Any]
 CODEX_BIN_ENV = "OPENCODE_GO_PROXY_CODEX_BIN"
 NATIVE_CATALOG_NAME = "native-models.json"
 NATIVE_CAPTURE_TIMEOUT_SEC = 30
+BUNDLED_FLAG = "--bundled"
 
 # The exact keys routing and the merged catalog consume; anything else the CLI
 # prints is not projected into the snapshot.
@@ -71,9 +78,7 @@ def _codex_bin_candidates() -> tuple[str, ...]:
     ]
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
-        candidates.append(
-            os.path.join(local_app_data, "Programs", "OpenAI", "Codex", "bin", f"codex{suffix}")
-        )
+        candidates.append(os.path.join(local_app_data, "Programs", "OpenAI", "Codex", "bin", f"codex{suffix}"))
     return tuple(candidates)
 
 
@@ -110,8 +115,7 @@ def _run(bin_path: str, args: list[str]) -> str:
     if completed.returncode != 0:
         stderr = completed.stderr.strip()
         raise NativeCaptureError(
-            f"{bin_path} {' '.join(args)} exited {completed.returncode}"
-            + (f": {stderr}" if stderr else "")
+            f"{bin_path} {' '.join(args)} exited {completed.returncode}" + (f": {stderr}" if stderr else "")
         )
     return completed.stdout
 
@@ -148,6 +152,7 @@ def _exclude_opencode_go_slugs(slugs: set[str]) -> set[str]:
     known = set(catalog.load_known_slugs())
     return {s for s in slugs if "/" not in s and s not in known}
 
+
 def _native_only(models: list[Json]) -> list[Json]:
     """Drop provider-prefixed and opencode-go slugs from the capture.
 
@@ -161,8 +166,23 @@ def _native_only(models: list[Json]) -> list[Json]:
     return [m for m in models if m.get("slug") in allowed]
 
 
+def _capture_catalog(bin_path: str) -> list[Json]:
+    """Native entries from the bundled catalog, never the configured one.
+
+    The bundled dump is independent of ``model_catalog_json``, so an active
+    proxy catalog can no longer empty the native snapshot. CLIs without the
+    flag fall back to the plain command; ``_native_only`` still keeps proxy
+    routes out of the native set.
+    """
+    try:
+        return _parse_models(_run(bin_path, ["debug", "models", BUNDLED_FLAG]))
+    except NativeCaptureError as exc:
+        trace("native_capture.bundled_unavailable", error=str(exc))
+        return _parse_models(_run(bin_path, ["debug", "models"]))
+
+
 def capture_native_models(*, dry_run: bool = False) -> Json:
-    """Run `codex debug models`, project to the kept keys, and snapshot it.
+    """Run `codex debug models --bundled`, project to the kept keys, and snapshot it.
 
     dry_run skips the state-dir write. Returns the snapshot shape
     (captured_at, captured_with, models) in both cases.
@@ -171,7 +191,7 @@ def capture_native_models(*, dry_run: bool = False) -> Json:
     snapshot = {
         "captured_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "captured_with": codex_version(bin_path),
-        "models": [_project_model(entry) for entry in _native_only(_parse_models(_run(bin_path, ["debug", "models"])))],
+        "models": [_project_model(entry) for entry in _native_only(_capture_catalog(bin_path))],
     }
     if not dry_run:
         path = native_models_path()
@@ -213,9 +233,8 @@ def load_native_capture(path: str | None = None) -> Json:
 def native_slugs(capture: Json) -> set[str]:
     # Same exclusion as _native_only so consumers of a stale snapshot file
     # (routing) can never treat opencode-go slugs as native.
-    return _exclude_opencode_go_slugs(
-        {str(entry["slug"]) for entry in capture.get("models", []) if entry.get("slug")}
-    )
+    return _exclude_opencode_go_slugs({str(entry["slug"]) for entry in capture.get("models", []) if entry.get("slug")})
+
 
 def native_effort_vocabulary(capture: Json) -> set[str]:
     """Union of reasoning efforts declared across the native models."""

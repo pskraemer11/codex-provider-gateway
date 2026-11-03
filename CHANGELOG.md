@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- Every successful AA fetch is persisted as a rolling snapshot
+  at `tools/codex-picker/data/artificial-analysis-live-snapshot.json`
+  (git-ignored, atomically replaced, overwritten on the next build). When the
+  live fetch fails for any reason — missing key, network error, rejected
+  response — the builder falls back to that snapshot and then to the dated
+  snapshot; `--check` reads the rolling snapshot but never writes it. The audit
+  records the write (`sources.artificial_analysis.snapshot`), the effective
+  fallback, and both snapshot files.
+- `ARTIFICIAL_ANALYSIS_LIVE_SNAPSHOT` points the rolling snapshot at another
+  path.
+
 ### Fixed
 
 - Repository-local Ruff configuration and version pins keep local, hook, and
@@ -68,6 +81,9 @@
 
 ### Added
 
+- Added `PLANUNG.md` with the open proxy findings and HTTP-dispatch regression
+  coverage for bare Zen-only Free IDs; the previously expected-failing path is
+  now fixed and passing with local fake upstreams.
 - `README_de.md` provides a complete German parallel version of the README,
   with language links in both directions.
 - Public issue forms for reproducible bug reports and focused feature requests,
@@ -76,12 +92,14 @@
   exercises provider switching and watchdog startup with temporary fixtures.
 - Windows proxy lifecycle scripts now live in `tools/codex-picker/`: a logon
   autostart and periodic health-watchdog installer, plus a provider switcher
-  that waits for `/health`. All three expose PowerShell comment-based help via
-  `Get-Help`/`-?`, with `-Help` and `--help` shortcuts. Task registration remains
+  that waits for `/health`. All three expose an explicit `-Help` switch, so
+  `-Help` and `--help` show detailed comment-based help without exposing the
+  previous internal remaining-arguments parameter. The Windows fixture test
+  verifies both help forms and each documented option. Task registration remains
   an explicit user action and is not run by this change.
 - The provider-catalog builder accepts CLI overrides for the strict input-price
-  ceiling and minimum scaled AA Intelligence Index score; defaults remain
-  `$0.25/M` and a strict score `> 50`.
+  ceiling and minimum scaled AA Intelligence Index score; defaults are
+  `$0.25/M` and a strict score `> 45`.
 - Local test gate under `.githooks/`, activated per clone with
   `git config core.hooksPath .githooks`. `pre-commit` runs Ruff and the full
   suite when a staged path starts with `src/`, `tests/`, `contrib/` or
@@ -95,7 +113,7 @@
   its workflow ignores local branches.
 - Shared Codex catalog builder under `tools/codex-picker/` for OpenRouter,
   OpenCode Go, Zen, and the combined proxy. The ordinary filter is input price
-  `< $0.25/M` and calibrated AA Intelligence score `>50`; the five explicitly pinned free routes
+  `< $0.25/M` and calibrated AA Intelligence score `>45`; the five explicitly pinned free routes
   require verified `$0` input price and remain `unverified` when benchmark data
   is missing. DeepSeek V4.1 Flash 1017 is preferred only when it qualifies.
 - `tools/codex-picker/METHODOLOGY.md` documents the calibration and score
@@ -122,12 +140,67 @@
   README headings and its catalog summary table are now consistently English.
 - Picker calibration now uses the complete usable live AA Intelligence
   population before price filtering, and the default normalized quality
-  threshold is `> 50/100`. This prevents the 0–100 scale from being redefined
+  threshold is `> 45/100`. This prevents the 0–100 scale from being redefined
   by the current set of cheap candidates. The dated AA snapshot follows the
-  same rule when used as a fallback.
+  same rule when used as a fallback. The `45` default keeps `zen/gpt-6-luna`
+  (AA raw 27.8, calibrated ≈ 45.1) in the proxy catalog, which is the model the
+  root Codex selection points at.
+- `config enable` and the Windows provider switcher now emit
+  `requires_openai_auth = true` and no `env_key` for `opencode-go`, `zen`, and
+  `opencode-proxy`. Codex Desktop refuses plugin toggles with HTTP 432 when the
+  active provider is keyed by `env_key`; the proxy ignores the incoming bearer
+  either way.
+- Native capture reads `codex debug models --bundled` instead of the plain
+  command, which renders the configured `model_catalog_json` and reduced the
+  native snapshot to zero entries while a proxy catalog was active. The picker's
+  template fallback uses the same flag.
+- The update check follows the fork release channel
+  `pskraemer11/codex-provider-gateway` and falls back to `/tags?per_page=1` when
+  the repository has tags but no published GitHub release.
+- Bare Zen-only model IDs now pass through the Zen handler after routing selects
+  Zen; Go/Zen collisions remain routed to Go.
+- The picker labels AA Intelligence scores in model names/descriptions and displays them to one decimal. Pinned Free routes
+  show an available score or `unverified`; raw audit precision is unchanged.
+- Catalog descriptions read `Auswahl: <reason>` instead of `Auswahlgrund <reason>`,
+  and abbreviate the benchmark source as `AA` (transport labels `AA Data API` /
+  `dated AA snapshot`). Machine-readable audit values such as
+  `benchmark_source=artificial-analysis` and the calibration source keys are
+  unchanged.
+- The default input-price cap is now `$0.30/M` (strictly below) instead of
+  `$0.25/M`; the calibrated AA threshold stays `> 45/100`.
+- Threshold reconciliation: the 8-model OpenRouter catalog from the v4.3
+  workbook uses `> 50/100`. Against the live v5 population `> 50/100` yields
+  only 5 OpenRouter models (3 scored + 2 pinned free), while `> 45/100` yields
+  8. The v4.3 count therefore does not transfer to v5. Live-first stays the
+  policy; if a future AA population yields too few models, the score threshold
+  is the knob to adjust.
+- AA values are selected per model family: the highest Intelligence value across
+  the reasoning levels (`-low` … `-max`, `-reasoning`, `-non-reasoning`,
+  `-minimal`), with one value per base model in the calibration population.
+  Previously only the exact slug row counted, which understated models whose
+  strongest level is a suffixed variant and double-counted effort variants in the
+  Min-Max scale. Product suffixes such as `-pro` remain separate families.
+- Each catalog keeps one entry per base model; reasoning intensity stays the
+  entry's `supported_reasoning_levels`/`default_reasoning_level` sub-selection.
+  A provider that advertises effort-suffixed routes as separate models is
+  deduplicated (best score, then lower price, then base slug) and the dropped
+  ids are listed in `deduplicated_reasoning_variants` in the audit.
+- `--help` now states the accepted format for both selection options:
+  `--max-input-price` takes a decimal in USD per 1M input tokens without a
+  currency symbol (e.g. `0.30`), `--min-intelligence-score` takes a number from
+  0 to 100 on the normalized scale (e.g. `45`).
 
 - Reject unknown or malformed model IDs before routing instead of silently
   substituting `deepseek-v4-flash`.
+- `doctor` now follows both setup paths (root `openai_base_url` from
+  `config enable`, and root `model_provider` with its
+  `[model_providers.<name>]` table from the switcher), fails when the selected
+  `model` is absent from `model_catalog_json`, and warns when the active proxy
+  provider still sets `env_key`. A provider table decides by its `base_url`, not
+  by its name, so a renamed switcher target still passes while a known proxy
+  name pointing upstream reports "does not route through the proxy".
+  `switch-provider.ps1 -Check` reports a stale catalog and the provider-auth
+  shape as well.
 - Avoid reverse-DNS lookup delays while starting the local listener.
 - Clarify the project's independent, single-user credential and policy boundary.
 - Publishing and contribution guidance now identify this fork as the canonical

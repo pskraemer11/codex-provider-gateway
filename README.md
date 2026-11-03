@@ -174,11 +174,13 @@ after writing.
 
 Use `--provider openrouter|go|zen|proxy` to build one catalog, and
 `--max-input-price` or `--min-intelligence-score` to choose a different Pareto
-point. The default input-price limit is `$0.25/M` (strictly below). Increase it
-if you want more models. The calibrated Artificial Analysis Intelligence Index
-threshold defaults to strictly greater than `50/100`; the calibration
+point. The default input-price limit is `$0.30/M` (strictly below). Increase it
+if you want more models. The calibrated AA Intelligence Index
+threshold defaults to strictly greater than `45/100`; the calibration
 population always includes all usable values before provider prices are
-applied. The raw index is scaled and normalized to `0..100` first.
+applied. The raw index is scaled and normalized to `0..100` first. The `45`
+default keeps `zen/gpt-6-luna` (AA raw 27.8, calibrated ≈ 45.1) in the proxy
+catalog, which is the model the root Codex selection points at.
 
 The Windows switcher toggles the root Codex provider between `openrouter` and
 the local `opencode-proxy` configuration:
@@ -208,11 +210,17 @@ env_key = "OPENROUTER_API_KEY"
 name = "OpenCode Go + Zen (local proxy)"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
-env_key = "OPENCODE_GO_API_KEY"
+requires_openai_auth = true
 ```
 
+`requires_openai_auth = true` without `env_key` keeps the ChatGPT session as
+the provider credential. Codex Desktop refuses plugin toggles with HTTP 432 when
+the active provider is keyed by `env_key` instead. The proxy itself ignores the
+incoming bearer, so both settings route model traffic identically.
+
 The picker does not create or modify these provider tables because it does not
-touch `config.toml`.
+touch `config.toml`. `opencode-go-proxy doctor` warns when the active proxy
+provider still sets `env_key` or omits `requires_openai_auth`.
 
 ## Endpoints
 
@@ -295,17 +303,20 @@ The picker writes the four catalogs from the introduction plus
 
 - OpenRouter prices from `/api/v1/models`
 - OpenCode Go and Zen prices from their documentation tables
-- Artificial Analysis Intelligence values from the live AA API
-- a dated local AA snapshot only as a bounded fallback
+- Intelligence values from the live AA API
+- the last successful live fetch as a rolling snapshot
+  (`tools/codex-picker/data/artificial-analysis-live-snapshot.json`), then a
+  dated local AA snapshot as a bounded fallback
 - Go/Zen route names and families from the running proxy and its state catalog
 
-Normal selection requires input price `< $0.25/M` and a calibrated AA
-Intelligence score `> 50/100`. The score is Min-Max calibrated over all usable
+Normal selection requires input price `< $0.30/M` and a calibrated AA
+Intelligence score `> 45/100`. The score is Min-Max calibrated over all usable
 values in the selected AA population before provider prices are applied. This
 keeps the scale anchored to the overall model field instead of redefining
-`0/100` from the currently price-eligible subset. If the live Intelligence
-population is unavailable or all zero, the same rule is applied to the bounded
-local snapshot. Missing or ambiguous benchmark identities remain `unverified`;
+`0/100` from the currently price-eligible subset. If the live fetch fails or
+its Intelligence population is unavailable or all zero, the same rule is
+applied to the rolling snapshot, then to the bounded dated snapshot. Missing or
+ambiguous benchmark identities remain `unverified`;
 they are not converted to zero. Five explicitly requested free routes are
 included only when the provider source confirms a `$0` input price. OpenRouter
 Coding and Agentic indices are not used as a substitute for the AA Intelligence
