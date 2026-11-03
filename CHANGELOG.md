@@ -154,6 +154,10 @@
 
 ### Changed
 
+- The proxy catalog now orders all `opencode-go/` routes before all `zen/`
+  routes; within each group the existing score/price order applies. Codex
+  renders the picker from the catalog `priority` field, so the three Go models
+  appear first and the five Zen models follow.
 - README and README_de now document the Windows watchdog installation end to
   end: installer command, the two scheduled tasks, manual verification, log
   location, and the repair for a stale uv-tool launcher.

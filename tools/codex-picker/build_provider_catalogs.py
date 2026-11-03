@@ -838,11 +838,22 @@ def _selection_reason(
     return None
 
 
-def _candidate_sort_key(provider: str, candidate: dict[str, Any]) -> tuple[bool, bool, float, Decimal, str]:
+def _candidate_sort_key(provider: str, candidate: dict[str, Any]) -> tuple[int, bool, bool, float, Decimal, str]:
+    """Order a catalog; the proxy lists all Go routes before all Zen routes.
+
+    Codex renders the model picker by the catalog ``priority`` field, which the
+    builder assigns from this order. Within a route group the previous rule
+    still applies: preferred model, scored before unverified, higher score,
+    lower price, id.
+    """
     identifier = str(candidate["id"])
     preferred = identifier == PREFERRED_MODEL_IDS.get(provider)
     score = finite_number(candidate.get("score"))
+    route_group = 0
+    if provider == "proxy" and not identifier.startswith("opencode-go/"):
+        route_group = 1
     return (
+        route_group,
         not preferred,
         score is None,
         -(score if score is not None else 0.0),

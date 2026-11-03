@@ -486,6 +486,35 @@ def test_reasoning_family_patterns_from_the_workbook(family, rows, expected) -> 
     assert "unverified" not in join.split(";")[0]
 
 
+def test_proxy_catalog_lists_all_go_routes_before_zen() -> None:
+    items = [
+        {"id": "zen/model-b", "score": 90.0, "price": "0.10", "entry": {}},
+        {"id": "opencode-go/model-a", "score": 50.0, "price": "0.10", "entry": {}},
+        {"id": "zen/model-c", "score": None, "price": "0", "entry": {}},
+        {"id": "opencode-go/model-d", "score": None, "price": "0", "entry": {}},
+    ]
+
+    ordered = sorted(items, key=lambda item: builder._candidate_sort_key("proxy", item))
+
+    assert [item["id"] for item in ordered] == [
+        "opencode-go/model-a",
+        "opencode-go/model-d",
+        "zen/model-b",
+        "zen/model-c",
+    ]
+
+
+def test_openrouter_catalog_keeps_score_order_without_route_groups() -> None:
+    items = [
+        {"id": "vendor/low", "score": 50.0, "price": "0.10", "entry": {}},
+        {"id": "vendor/high", "score": 90.0, "price": "0.10", "entry": {}},
+    ]
+
+    ordered = sorted(items, key=lambda item: builder._candidate_sort_key("openrouter", item))
+
+    assert [item["id"] for item in ordered] == ["vendor/high", "vendor/low"]
+
+
 def test_catalog_keeps_one_entry_per_base_model_and_drops_effort_variants() -> None:
     items = [
         {"id": "openai/model-a", "score": 50.0, "price": "0.10", "entry": {"slug": "openai/model-a"}},
