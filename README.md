@@ -128,16 +128,34 @@ opencode-go-proxy config disable
 ```
 
 On Windows, the optional autostart and health watchdog live in
-`tools/codex-picker/`. The installer copies the watchdog into the user's local
-app-data directory together with a `wscript.exe` launcher that prevents console
-flashing on scheduled checks. The watchdog prefers the installed
-`opencode-go-proxy` command. `uv run` remains only a development fallback when
-the command is not installed. Preview Task Scheduler registration before
-enabling it:
+`tools/codex-picker/`. Install the proxy command first (see above), make the key
+available to the signed-in user, then register the tasks:
 
 ```powershell
-pwsh -File tools/codex-picker/install-proxy-autostart.ps1 -WhatIf -ReplaceExisting
+pwsh -File tools/codex-picker/install-proxy-autostart.ps1 -ReplaceExisting
 ```
+
+Preview the registration with `-WhatIf`; remove only the two managed tasks with
+`-Uninstall`. The installer copies the watchdog and a `hidden-run.vbs` launcher
+into `%LOCALAPPDATA%\opencode-go-proxy` and registers two tasks:
+`opencode-go-proxy` at logon and `opencode-go-proxy watchdog` every five
+minutes. Both run through `wscript.exe`, so scheduled checks do not flash a
+console window.
+
+The watchdog checks `http://127.0.0.1:8787/health` and starts the proxy when
+needed. It prefers the installed `opencode-go-proxy` command, probes it with
+`--help`, and falls back to `uv run` from this checkout when the launcher is
+stale (for example after a removed uv-tool environment). Status is appended to
+`%LOCALAPPDATA%\opencode-go-proxy\logs\watchdog.log`. Check it manually with:
+
+```powershell
+pwsh -File tools/codex-picker/watchdog-proxy.ps1
+opencode-go-proxy doctor
+```
+
+A stale launcher (`ModuleNotFoundError: No module named 'opencode_go_proxy'`)
+is repaired with `uv tool install --editable . --python 3.12 --force`; the
+watchdog keeps working through its checkout fallback until then.
 
 ### Catalog picker
 

@@ -142,16 +142,36 @@ opencode-go-proxy config disable
 ```
 
 Unter Windows befinden sich der optionale Autostart und der Health-Watchdog in
-`tools/codex-picker/`. Der Installer kopiert den Watchdog zusammen mit einem
-`wscript.exe`-Launcher in das lokale App-Data-Verzeichnis des Benutzers, damit
-geplante Prüfungen kein Konsolenfenster aufblitzen lassen. Der Watchdog bevorzugt den installierten
-Befehl `opencode-go-proxy`. `uv run` bleibt nur ein Entwicklungs-Fallback, wenn
-der Befehl nicht installiert ist. Prüfen Sie die Task-Scheduler-Registrierung
-vor dem Aktivieren:
+`tools/codex-picker/`. Installieren Sie zuerst den Proxy-Befehl (siehe oben),
+legen Sie den Schlüssel für den angemeldeten Benutzer ab und registrieren Sie
+dann die Tasks:
 
 ```powershell
-pwsh -File tools/codex-picker/install-proxy-autostart.ps1 -WhatIf -ReplaceExisting
+pwsh -File tools/codex-picker/install-proxy-autostart.ps1 -ReplaceExisting
 ```
+
+Mit `-WhatIf` prüfen Sie die Registrierung vorab; `-Uninstall` entfernt nur die
+beiden verwalteten Tasks. Der Installer kopiert den Watchdog und einen
+`hidden-run.vbs`-Launcher nach `%LOCALAPPDATA%\opencode-go-proxy` und registriert
+zwei Tasks: `opencode-go-proxy` bei der Anmeldung und
+`opencode-go-proxy watchdog` alle fünf Minuten. Beide laufen über
+`wscript.exe`, damit geplante Prüfungen kein Konsolenfenster aufblitzen lassen.
+
+Der Watchdog prüft `http://127.0.0.1:8787/health` und startet den Proxy bei
+Bedarf. Er bevorzugt den installierten Befehl `opencode-go-proxy`, prüft ihn
+mit `--help` und fällt auf `uv run` aus diesem Checkout zurück, wenn der
+Launcher veraltet ist (zum Beispiel nach einem entfernten uv-Tool-Environment).
+Der Status landet in `%LOCALAPPDATA%\opencode-go-proxy\logs\watchdog.log`.
+Manuell prüfen:
+
+```powershell
+pwsh -File tools/codex-picker/watchdog-proxy.ps1
+opencode-go-proxy doctor
+```
+
+Einen veralteten Launcher (`ModuleNotFoundError: No module named
+'opencode_go_proxy'`) repariert `uv tool install --editable . --python 3.12
+--force`; bis dahin arbeitet der Watchdog über seinen Checkout-Fallback weiter.
 
 ### Katalogpicker
 
