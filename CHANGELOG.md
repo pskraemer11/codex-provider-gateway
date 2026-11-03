@@ -17,6 +17,10 @@
 
 ### Fixed
 
+- The protocol catalog cache now keys on `mtime_ns` plus file size. Windows file
+  times can repeat within one clock tick, so a same-tick rewrite could serve
+  stale slugs (the `test_catalog_local` flake). The image-model cache in
+  `vision.py` uses the same fingerprint.
 - The Windows watchdog now probes the installed `opencode-go-proxy` launcher
   before using it. A stale uv-tool shim fails with
   `ModuleNotFoundError: No module named 'opencode_go_proxy'`; the watchdog
@@ -150,6 +154,9 @@
 
 ### Changed
 
+- README and README_de now document the Windows watchdog installation end to
+  end: installer command, the two scheduled tasks, manual verification, log
+  location, and the repair for a stale uv-tool launcher.
 - The canonical fork references now use
   `pskraemer11/codex-provider-gateway`, matching the renamed GitHub repository.
   README headings and its catalog summary table are now consistently English.

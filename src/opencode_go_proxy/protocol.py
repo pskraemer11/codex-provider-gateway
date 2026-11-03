@@ -131,37 +131,39 @@ def inject_session_model(payload: Json, session_model: str) -> Json:
         return payload
     return dict(payload)
 
+
 DEFAULT_MODEL = "deepseek-v4-flash"
 IMAGE_MODEL_DEFAULT = "mimo-v2.5"
 
 
-def _catalog_mtime() -> tuple[str, int | None]:
-    """(path, mtime_ns) for the catalog the proxy serves; mtime None when missing."""
+def _catalog_fingerprint() -> tuple[str, tuple[int, int] | None]:
+    """(path, (mtime_ns, size)) for the catalog the proxy serves; None when missing.
+
+    Windows file times can repeat within one clock tick, so mtime alone cannot
+    tell two writes apart. The size is part of the key as well.
+    """
     from opencode_go_proxy import catalog as _catalog
 
     path = _catalog.default_catalog_path()
     try:
-        return path, os.stat(path).st_mtime_ns
+        stat = os.stat(path)
+        return path, (stat.st_mtime_ns, stat.st_size)
     except OSError:
         return path, None
 
 
-# One mtime-keyed parse serves all three catalog views below: known slugs,
+# One fingerprint-keyed parse serves all three catalog views below: known slugs,
 # context windows, and image-capable slugs. The full-shape catalog file is
 # only read once per change instead of once per view.
-_CATALOG_CACHE: tuple[str, int | None, set[str], dict[str, int], set[str]] | None = None
+_CATALOG_CACHE: tuple[str, tuple[int, int] | None, set[str], dict[str, int], set[str]] | None = None
 
 
-def _catalog_views() -> tuple[str, int | None, set[str], dict[str, int], set[str]]:
-    """Parse the catalog once, cached by file mtime; (path, mtime, slugs, windows, image_slugs)."""
+def _catalog_views() -> tuple[str, tuple[int, int] | None, set[str], dict[str, int], set[str]]:
+    """Parse the catalog once, cached by mtime+size; (path, fingerprint, slugs, windows, image_slugs)."""
     global _CATALOG_CACHE
 
-    path, mtime = _catalog_mtime()
-    if (
-        _CATALOG_CACHE is not None
-        and _CATALOG_CACHE[0] == path
-        and _CATALOG_CACHE[1] == mtime
-    ):
+    path, fingerprint = _catalog_fingerprint()
+    if _CATALOG_CACHE is not None and _CATALOG_CACHE[0] == path and _CATALOG_CACHE[1] == fingerprint:
         return _CATALOG_CACHE
     slugs: set[str] = set()
     windows: dict[str, int] = {}
@@ -185,7 +187,7 @@ def _catalog_views() -> tuple[str, int | None, set[str], dict[str, int], set[str
                         image_slugs.add(normalize_model_slug(slug))
     except (OSError, json.JSONDecodeError):
         pass
-    _CATALOG_CACHE = (path, mtime, slugs, windows, image_slugs)
+    _CATALOG_CACHE = (path, fingerprint, slugs, windows, image_slugs)
     return _CATALOG_CACHE
 
 
@@ -287,7 +289,8 @@ def _content_to_chat_parts(content: Any) -> list[Json] | str:
         return flatten_content(content)
 
     has_image = any(
-        isinstance(part, dict) and part.get("type") in {"input_image", "image_url", "image"}
+        isinstance(part, dict)
+        and part.get("type") in {"input_image", "image_url", "image"}
         or (isinstance(part, str) and _is_safe_url_string(part))
         for part in content
     )
@@ -636,8 +639,7 @@ def responses_tools_to_function_tools(tools: Any) -> tuple[list[Json] | None, Js
                 "type": "function",
                 "name": function.get("name", ""),
                 "description": function.get("description", ""),
-                "parameters": function.get("parameters")
-                or {"type": "object", "properties": {}},
+                "parameters": function.get("parameters") or {"type": "object", "properties": {}},
             }
         )
     return result or None, stats
@@ -649,9 +651,7 @@ def restore_namespaced_function_calls(value: Any) -> Any:
         return [restore_namespaced_function_calls(item) for item in value]
     if not isinstance(value, dict):
         return value
-    restored = {
-        key: restore_namespaced_function_calls(item) for key, item in value.items()
-    }
+    restored = {key: restore_namespaced_function_calls(item) for key, item in value.items()}
     if restored.get("type") != "function_call" or "namespace" in restored:
         return restored
     name = restored.get("name")
@@ -688,9 +688,7 @@ def responses_payload_to_chat_payload(payload: Json) -> tuple[Json, str, Json]:
             if bare in image_capable_models():
                 upstream_model = bare
             else:
-                upstream_model = (
-                    os.environ.get("CODEX_IMAGE_MODEL", IMAGE_MODEL_DEFAULT) or IMAGE_MODEL_DEFAULT
-                )
+                upstream_model = os.environ.get("CODEX_IMAGE_MODEL", IMAGE_MODEL_DEFAULT) or IMAGE_MODEL_DEFAULT
         else:
             upstream_model = bare
 

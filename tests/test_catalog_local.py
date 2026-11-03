@@ -4,6 +4,7 @@ Covers the user-models overlay (add / hide / edit display), hidden-model flags,
 announcements, the mtime-cached known_models() reload without restart, and the
 rule that runtime refresh never writes the checked-in contrib files.
 """
+
 import datetime
 import json
 import os
@@ -142,9 +143,7 @@ class TestHiddenModels:
 
 class TestAnnouncements:
     def test_first_run_seeds_silently(self) -> None:
-        models, announced = catalog.annotate_announcements(
-            base_models(), None, now=1_000_000.0, curated_slugs=set()
-        )
+        models, announced = catalog.annotate_announcements(base_models(), None, now=1_000_000.0, curated_slugs=set())
 
         assert all(m.get("availability_nux") is None for m in models)
         assert announced == {"deepseek-v4-flash": 0.0, "deepseek-v4-pro": 0.0}
@@ -161,9 +160,7 @@ class TestAnnouncements:
             }
         ]
 
-        out, next_announced = catalog.annotate_announcements(
-            models, announced, now=1_000_100.0, curated_slugs=set()
-        )
+        out, next_announced = catalog.annotate_announcements(models, announced, now=1_000_100.0, curated_slugs=set())
 
         new = {m["slug"]: m for m in out}["brand-new"]
         assert new["availability_nux"] == {
@@ -176,13 +173,9 @@ class TestAnnouncements:
 
     def test_curated_models_never_announce(self) -> None:
         announced = {"curated-flash": 1_000_000.0}
-        models = [
-            {"slug": "curated-flash", "display_name": "Curated", "context_window": 400000}
-        ]
+        models = [{"slug": "curated-flash", "display_name": "Curated", "context_window": 400000}]
 
-        out, _ = catalog.annotate_announcements(
-            models, announced, now=1_000_100.0, curated_slugs={"curated-flash"}
-        )
+        out, _ = catalog.annotate_announcements(models, announced, now=1_000_100.0, curated_slugs={"curated-flash"})
 
         assert out[0].get("availability_nux") is None
 
@@ -260,6 +253,24 @@ class TestRuntimeRefresh:
         after = set(protocol.known_models())
         assert "curated-flash" in after
         assert len(after) > len(before)
+
+    def test_known_models_cache_includes_file_size(self, tmp_path, monkeypatch) -> None:
+        catalog_path = tmp_path / "catalog.json"
+        catalog_path.write_text(json.dumps({"models": [{"slug": "model-a"}]}), encoding="utf-8")
+        stat = catalog_path.stat()
+        monkeypatch.setattr(catalog, "default_catalog_path", lambda: str(catalog_path))
+
+        protocol.reload_known_models()
+        assert protocol.known_models() == {"model-a"}
+
+        catalog_path.write_text(
+            json.dumps({"models": [{"slug": "model-a"}, {"slug": "model-b"}]}),
+            encoding="utf-8",
+        )
+        # Same mtime tick as the first write: only the size differs.
+        os.utime(catalog_path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+        assert protocol.known_models() == {"model-a", "model-b"}
 
     def test_fresh_compact_skips_discovery_and_reapplies_overlay(self) -> None:
         state = os.environ["OPENCODE_GO_PROXY_STATE_DIR"]
@@ -347,8 +358,9 @@ class TestReviewFixups:
         seed = catalog.load_seed_compact()
         assert seed is not None
         compact = {**seed, "models": []}
-        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_STATE_DIR": str(state)}, clear=True), mock.patch(
-            "opencode_go_proxy.catalog.read_announced_at", return_value=None
+        with (
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_STATE_DIR": str(state)}, clear=True),
+            mock.patch("opencode_go_proxy.catalog.read_announced_at", return_value=None),
         ):
             catalog.render_runtime_catalog(compact)
         assert not (state / "announced-models.json").exists()
@@ -358,8 +370,12 @@ class TestReviewFixups:
         state.mkdir(exist_ok=True)
         seed = catalog.load_seed_compact()
         assert seed is not None
-        with mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_STATE_DIR": str(state)}, clear=True), mock.patch(
-            "opencode_go_proxy.catalog.discover_models", side_effect=catalog.CatalogDiscoveryError("offline")
-        ), mock.patch("opencode_go_proxy.catalog.load_seed_compact", return_value=seed):
+        with (
+            mock.patch.dict(os.environ, {"OPENCODE_GO_PROXY_STATE_DIR": str(state)}, clear=True),
+            mock.patch(
+                "opencode_go_proxy.catalog.discover_models", side_effect=catalog.CatalogDiscoveryError("offline")
+            ),
+            mock.patch("opencode_go_proxy.catalog.load_seed_compact", return_value=seed),
+        ):
             rendered = catalog.refresh_catalog()
         assert rendered.get("models")

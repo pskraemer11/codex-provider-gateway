@@ -30,7 +30,7 @@ from typing import Any
 
 from .errors import ProxyError
 from .meter import record_usage_event
-from .protocol import IMAGE_MODEL_DEFAULT, _catalog_mtime
+from .protocol import IMAGE_MODEL_DEFAULT, _catalog_fingerprint
 
 # Caption cache: the same screenshot bytes are re-sent on every tool call of a
 # turn, and each re-caption costs a full upstream round trip. Key by the raw
@@ -132,7 +132,9 @@ def caption_detail() -> str | None:
     return "low"
 
 
-def build_caption_payload(image_url: str, model: str, *, detail: str | None = "low", prompt: str = CAPTION_PROMPT) -> dict[str, Any]:
+def build_caption_payload(
+    image_url: str, model: str, *, detail: str | None = "low", prompt: str = CAPTION_PROMPT
+) -> dict[str, Any]:
     """Chat payload for one caption sub-call, image detail included."""
     image: dict[str, Any] = {"url": image_url}
     if detail:
@@ -285,20 +287,20 @@ def supports_image_input(model: dict[str, Any]) -> bool:
     return "image" in (model.get("input_modalities") or [])
 
 
-# Single-slot mtime cache for the catalog read below; the catalog is parsed
+# Single-slot fingerprint cache for the catalog read below; the catalog is parsed
 # once per change instead of on every caption turn.
-_CATALOG_MODELS_CACHE: tuple[str, int | None, list[dict[str, Any]]] | None = None
+_CATALOG_MODELS_CACHE: tuple[str, tuple[int, int] | None, list[dict[str, Any]]] | None = None
 
 
 def catalog_image_models() -> list[dict[str, Any]]:
     """Image-capable, listed models from the full-shape state catalog."""
     global _CATALOG_MODELS_CACHE
 
-    path, mtime = _catalog_mtime()
+    path, fingerprint = _catalog_fingerprint()
     if (
         _CATALOG_MODELS_CACHE is not None
         and _CATALOG_MODELS_CACHE[0] == path
-        and _CATALOG_MODELS_CACHE[1] == mtime
+        and _CATALOG_MODELS_CACHE[1] == fingerprint
     ):
         return _CATALOG_MODELS_CACHE[2]
     try:
@@ -310,11 +312,9 @@ def catalog_image_models() -> list[dict[str, Any]]:
     if not isinstance(models, list):
         models = []
     image_models = [
-        m
-        for m in models
-        if isinstance(m, dict) and supports_image_input(m) and m.get("visibility", "list") == "list"
+        m for m in models if isinstance(m, dict) and supports_image_input(m) and m.get("visibility", "list") == "list"
     ]
-    _CATALOG_MODELS_CACHE = (path, mtime, image_models)
+    _CATALOG_MODELS_CACHE = (path, fingerprint, image_models)
     return image_models
 
 
@@ -322,8 +322,7 @@ def catalog_image_models() -> list[dict[str, Any]]:
 # relative cost, mirroring the reference router: flash/haiku/mini/lite/small/
 # turbo are the cheap tiers, then priority, then slug as a stable tiebreak.
 _CHEAP_ENGINE_HINTS: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (r"flash", r"haiku", r"mini(?!max)", r"lite", r"small", r"turbo")
+    re.compile(pattern, re.IGNORECASE) for pattern in (r"flash", r"haiku", r"mini(?!max)", r"lite", r"small", r"turbo")
 )
 
 
@@ -369,7 +368,10 @@ _LOCAL_PROBE_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
 
 
 def local_vision_base_url() -> str:
-    return os.environ.get(LOCAL_VISION_BASE_URL_ENV, DEFAULT_LOCAL_VISION_BASE_URL).strip() or DEFAULT_LOCAL_VISION_BASE_URL
+    return (
+        os.environ.get(LOCAL_VISION_BASE_URL_ENV, DEFAULT_LOCAL_VISION_BASE_URL).strip()
+        or DEFAULT_LOCAL_VISION_BASE_URL
+    )
 
 
 def local_vision_model() -> str:
@@ -437,7 +439,9 @@ def _caption_attempt(
 
     payload = build_caption_payload(image_url, image_model, detail=detail, prompt=prompt)
     try:
-        chat, _retries = call_upstream_chat(payload, config, request_id, timeout_sec=caption_timeout_sec(), max_retries=0)
+        chat, _retries = call_upstream_chat(
+            payload, config, request_id, timeout_sec=caption_timeout_sec(), max_retries=0
+        )
         return chat, None
     except Exception as exc:  # noqa: BLE001 - surfaced as a failed caption
         return None, exc
@@ -463,11 +467,21 @@ class RemoteVisionAdapter:
         detail = caption_detail()
         url, model = image_url, self.model
         chat, exc = _caption_attempt(url, model, detail, prompt, config, request_id)
-        if exc is not None and _caption_rejection_status(exc) in CAPTION_FALLBACK_STATUSES and model != IMAGE_MODEL_DEFAULT:
+        if (
+            exc is not None
+            and _caption_rejection_status(exc) in CAPTION_FALLBACK_STATUSES
+            and model != IMAGE_MODEL_DEFAULT
+        ):
             # The pinned/auto model may reject image input; fall back to the
             # known vision model for this one sub-call.
             model = IMAGE_MODEL_DEFAULT
-            trace("split_turn.caption_fallback", request_id=request_id, kind="engine", model=model, status=_caption_rejection_status(exc))
+            trace(
+                "split_turn.caption_fallback",
+                request_id=request_id,
+                kind="engine",
+                model=model,
+                status=_caption_rejection_status(exc),
+            )
             chat, exc = _caption_attempt(url, model, detail, prompt, config, request_id)
         if exc is not None and _caption_rejection_status(exc) in CAPTION_FALLBACK_STATUSES and detail is not None:
             # Unknown detail values can 4xx on some upstreams; retry with a
@@ -476,7 +490,12 @@ class RemoteVisionAdapter:
             if downscaled is not None:
                 url = downscaled
             detail = None
-            trace("split_turn.caption_fallback", request_id=request_id, kind="detail", status=_caption_rejection_status(exc))
+            trace(
+                "split_turn.caption_fallback",
+                request_id=request_id,
+                kind="detail",
+                status=_caption_rejection_status(exc),
+            )
             chat, exc = _caption_attempt(url, model, detail, prompt, config, request_id)
         if exc is not None:
             return None, exc
@@ -492,7 +511,9 @@ class RemoteVisionAdapter:
 
 def _local_engine_error(exc: Exception, model: str) -> ProxyError:
     if isinstance(exc, urllib.error.HTTPError):
-        return ProxyError(HTTPStatus.BAD_GATEWAY, f"local vision engine {model} HTTP {exc.code}", upstream_status=exc.code)
+        return ProxyError(
+            HTTPStatus.BAD_GATEWAY, f"local vision engine {model} HTTP {exc.code}", upstream_status=exc.code
+        )
     return ProxyError(HTTPStatus.BAD_GATEWAY, f"local vision engine {model}: {exc}")
 
 
@@ -515,9 +536,7 @@ class LocalVisionAdapter:
         payload = build_caption_payload(image_url, self.model, detail=None, prompt=prompt)
         raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         url = f"{self.base_url}/chat/completions"
-        request = urllib.request.Request(
-            url, data=raw, headers={"content-type": "application/json"}, method="POST"
-        )
+        request = urllib.request.Request(url, data=raw, headers={"content-type": "application/json"}, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=caption_timeout_sec()) as response:
                 body = response.read()
@@ -624,7 +643,9 @@ def describe(
     return Evidence(kind="unreadable", text=text, model=last_adapter.model if last_adapter else None, cached=False)
 
 
-def caption_images_in_messages(chat_payload: dict[str, Any], target_model: str, config: Any, request_id: str) -> dict[str, Any]:
+def caption_images_in_messages(
+    chat_payload: dict[str, Any], target_model: str, config: Any, request_id: str
+) -> dict[str, Any]:
     """Replace image_url parts with vision-generated text captions. Routes turn to target_model after."""
     from .trace import trace
 
@@ -659,9 +680,7 @@ def caption_images_in_messages(chat_payload: dict[str, Any], target_model: str, 
     # Collapse text-only lists back to strings (fast path for upstream).
     for message in messages:
         content = message.get("content")
-        if isinstance(content, list) and all(
-            isinstance(p, dict) and p.get("type") == "text" for p in content
-        ):
+        if isinstance(content, list) and all(isinstance(p, dict) and p.get("type") == "text" for p in content):
             message["content"] = "\n".join(p.get("text", "") for p in content if p.get("text"))
 
     chat_payload["model"] = target_model
