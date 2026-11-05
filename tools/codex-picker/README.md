@@ -45,8 +45,10 @@ its own key, can use them.
 is variable (`-1` in the API) and there is no benchmark. Codex cannot send
 OpenRouter `plugins[]`, so `cost_tier` and `min_coding_score` take effect only
 when they are stored account-wide — Workspace → Routing for the Auto Router,
-Settings → Tools → Plugins for the Pareto Router. Note that a Pareto
-`max_price` overrides `min_coding_score`. The catalog entry carries the note;
+Settings → Tools → Plugins for the Pareto Router. A Pareto `max_price` disables
+the explicit `min_coding_score` threshold, but the router still picks the
+best-scoring model on the frontier at or below that price — best quality for a
+given price. The catalog entry carries the note;
 the catalog cannot enforce the value.
 
 The picker uses `CODEX_HOME/.tmp/bundled-catalog.json` when it exists. If that

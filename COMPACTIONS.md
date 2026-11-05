@@ -294,6 +294,11 @@
 - Router-Eintraege erscheinen in Codex als "variabler Preis · Intelligence-Score unverified"; das Zielmodell steht erst in der Antwort (`model`-Feld).
 - Ein Preset-Slug wuerde zusaetzlich `temperature 0.7`, `reasoning high/xhigh` und Server-Tools erzwingen und die Stufe trotzdem nicht setzen.
 
+=============== Korrektur 05.11.2026 / 20:05 ================
+- **Korrektur zum Block 19:52:** `max_price` setzt nur die explizite Schwelle `min_coding_score` ausser Kraft. Der Router waehlt weiterhin das beste Coding-Modell auf der Pareto-Frontier zu oder unter diesem Preis — beste Qualitaet zu gegebenem Preis bzw. niedrigster Preis zu gegebener Qualitaet. Die Formulierung "die Preisauswahl gewinnt" war falsch.
+- **Offen (eigene Sitzung):** Der Picker enthaelt auch Modelle, die nicht auf der Pareto-Frontier liegen. Eine Frontier-basierte Auswahl waere ein eigenes Vorhaben und ist nicht Teil dieser Aenderung.
+
+
 
 
 

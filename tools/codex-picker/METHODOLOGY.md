@@ -136,8 +136,10 @@ They carry `selection_reason=router_model_exception`, a variable price (`-1`,
 displayed as "variabler Preis") and no score; they rank after every free route.
 Both are routers, not models: Codex cannot send the OpenRouter `plugins[]` that
 controls `cost_tier` and `min_coding_score`. Those values must be stored
-account-wide (Workspace → Routing, Settings → Tools → Plugins), and a Pareto
-`max_price` overrides `min_coding_score`. The audit records the selection in
+account-wide (Workspace → Routing, Settings → Tools → Plugins). A Pareto
+`max_price` disables the explicit `min_coding_score` threshold but keeps
+score-based selection: the router takes the best-scoring coding model on the
+frontier at or below that price. The audit records the selection in
 `criteria.router_models`.
 
 `deepseek/deepseek-v4.1-flash-1017` is the preferred OpenRouter default only
