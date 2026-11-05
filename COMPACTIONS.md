@@ -164,3 +164,99 @@
 
 ## Relevant Files
 - `tools/codex-picker/catalog_rules.py`, `build_provider_catalogs.py`, `tests/test_codex_picker_selection.py`, `CHANGELOG.md`, `PLANUNG.md`, `README.md`, `README_de.md`, picker `README.md`/`METHODOLOGY.md`.
+
+=============== Compaction 05.11.2026 / 17:57 ================
+## Objective
+- **Current:** Free-Tier-Modelle aus allen Katalogen entfernen, Schwellen auf Input < `$0.50/M` und Score > `40/100` zuruecksetzen, Kataloge neu bauen.
+- **Completed:** Free-Regel plus Test, Pinning-Ausnahme entfernt, vier Kataloge neu geschrieben, Codex-Thread-Reparatur abgeschlossen.
+
+## Important Details
+- **Decision:** Free-Routen sind im Harness grundsaetzlich unbrauchbar. Gemessen am 05.11.: `zen/deepseek-v4.1-flash-free` antwortet `429 FreeUsageLimitError` (Retry 30.162 s), andere Free-Modelle `403 FreeTierError` ("can only be used from within OpenCode"). Ein `$0`-Inputpreis macht sie deshalb nicht waehlbar; die fruehere Ausnahme `PINNED_FREE_MODELS` / `user_pinned_free_exception` war die Ursache des toten Picker-Eintrags.
+- **Decision:** Schwellen stehen in `catalog_rules.py`, nicht im Aufruf. Sonst faellt ein spaeterer Rebuild still auf `$0.30`/`45` zurueck. `is_free_variant()` prueft providerbezogen: OpenRouter `:free` plus `openrouter/free`, Zen `-free`.
+- **Bug/Finding:** `_selection_reason()` prueft jetzt zuerst die Free-Regel; das Audit traegt `criteria.free_variants.excluded_counts` statt `explicit_free_exceptions`. `export_review_csv.py` verliert die Ausnahme-Pruefung, weil es keine Ausnahme mehr gibt.
+- **Codex-Threads:** 22 Threads mit Provider `opencode-go` und 25 mit `zen/*-free` wurden per `repair-threads.py` auf `opencode-proxy` umgeschrieben (Sicherungen `state_5.sqlite.bak-20261105-164438` und `-164945`). Die Modellspalte wird von Codex beim Start neu abgeleitet; nur der Provider bleibt stabil.
+
+## Work State
+### Completed
+- Kataloge: picker 8, go 5, zen 2, proxy 7 Modelle; kein `free`-Slug mehr; Audit-Counter openrouter 5 / go 0 / zen 9 ausgeschlossen.
+- Volle Suite `1084 passed, 6 skipped, 16 subtests`; `ruff check` clean; Loader-Verify exit 0; Katalog-Backups `*.backup-20261105-175143`.
+- Proxy-Katalog beginnt mit `opencode-go/mimo-v2.6-pro` (Score 48.3), der konfigurierte Default `opencode-go/mimo-v2.6-flash` bleibt enthalten.
+
+### Active
+- Keine offene Implementierung. Ein Plan fuer ein Plugin am `session.compaction`-Ereignis liegt zur Entscheidung vor.
+
+### Blocked
+- Nichts.
+
+## Next Move
+1. Codex Desktop neu starten und den Picker pruefen: sieben Eintraege, keine Free-Modelle, Default weiterhin `opencode-go/mimo-v2.6-flash`.
+2. Plugin-Entscheidung: Ziel COMPACTIONS.md, Sidecar oder Zeiger-plus-Sidecar.
+
+## Relevant Files
+- `tools/codex-picker/catalog_rules.py`: `is_free_variant`, `INPUT_PRICE_LIMIT=0.50`, `MIN_CALIBRATED_SCORE=40.0`.
+- `tools/codex-picker/build_provider_catalogs.py`: Free-Ausschluss vor Preis-/Score-Pruefung, Audit-Regel, Report-Zeile.
+- `tools/codex-picker/export_review_csv.py`: Ausnahme-Pruefung entfernt.
+- `tests/test_codex_picker_selection.py`, `tests/test_codex_picker_csv.py`: Grenzwerte, Free-Regel, Sortierung.
+- `tools/codex-picker/README.md`, `METHODOLOGY.md`: Preis-/Score-Historie und Free-Politik.
+- `tools/codex-picker/repair-threads.py`: Thread-Reparatur mit Sicherung und `--include-free`.
+
+## Important Context
+- `mimo-v2.6` ohne Suffix existiert im Go-Tarif nicht; nur `-flash` und `-pro`.
+- Die Free-Sperre gilt fuer Harnesses, nicht fuer OpenCode selbst.
+- Der Proxy lief waehrend des Baus; der Katalog ist live geprueft, nicht aus dem Cache.
+
+=============== Korrektur 05.11.2026 / 18:12 ================
+## Korrektur zum Block 17:57
+- **Befund:** Die Free-Sperre gilt nur fuer das OpenCode-Gateway (`go`, `zen`), nicht fuer OpenRouter. `[model_providers.openrouter]` zeigt direkt auf `openrouter.ai/api/v1` mit eigenem Key; `cohere/north-mini-code:free` und `openrouter/free` antworten dort **HTTP 200** (geprueft 05.11.2026). Die 403/429-Antworten kamen ausschliesslich von `opencode.ai`.
+- **Regel korrigiert:** `is_free_variant()` prueft nur noch `go` und `zen` auf `-free`. OpenRouter-Free-Modelle laufen durch den normalen Preis-/Score-Filter; der Audit-Zaehler steht bei `openrouter 0, go 0, zen 9`.
+- **Kataloge neu gebaut** (`*.backup-20261105-181120`): picker 8, go 5, zen 2, proxy 7 — unveraendert, weil kein Free-Modell einen Score hat.
+- **Nebenbefund:** Der authentifizierte OpenRouter-Katalog liefert 323 Modelle, die oeffentliche Liste 452. Acht `:free`-Modelle (u. a. `google/gemma-4-26b-a4b-it:free`, `nvidia/nemotron-3-ultra-550b-a55b:free`) werden diesem Konto gar nicht angeboten. Die fuenf sichtbaren Free-Modelle bleiben `unverified` und werden deshalb nicht ausgewaehlt.
+- **Offen (Nutzerentscheidung):** Sollen unverifizierte OpenRouter-Free-Modelle wieder als ausdrueckliche Ausnahme in den Picker, oder bleibt die Regel "ohne Benchmark keine Auswahl"?
+
+## Next Move
+1. Entscheidung zur Free-Ausnahme bei OpenRouter.
+2. Codex neu starten und Picker pruefen.
+
+## Relevant Files
+- `tools/codex-picker/catalog_rules.py`, `build_provider_catalogs.py`, `tests/test_codex_picker_selection.py`, `README.md`, `METHODOLOGY.md`, `CHANGELOG.md`.
+
+=============== Compaction 05.11.2026 / 18:50 ================
+## Objective
+- **Current:** Abschluss der Katalogarbeit: Rebuild auf dem neuen Stand, Commit im Fork, Push vorbereiten.
+- **Completed:** `--include-unverified-free` samt Hilfe, README, Tests und Audit-Feld; Kataloge neu gebaut; Doku aktualisiert.
+
+## Important Details
+- **Decision:** Free-Modelle sind auf dem direkten OpenRouter-Weg erlaubt, aber nur per Opt-in und nur bei verifiziertem `$0`-Inputpreis. Sie bleiben `unverified`, `score: null`, stehen hinter allen bewerteten Modellen und tragen `selection_reason=unverified_free_exception`. Go und Zen bleiben gesperrt.
+- **Finding (Instabilitaet):** Die authentifizierte OpenRouter-Modellliste schwankt zwischen 323 und 454 Eintraegen — 18:31 mit 454 (13 Free), 18:45 mit 323 (5 Free), gleicher Befehl und gleicher Key. Die acht bewerteten Modelle sind stabil, nur die Free-Menge schwankt. Ursache ist eine Kontofilterung bzw. ein Edge-Cache bei OpenRouter, kein Builder-Fehler.
+- **Konsequenz:** Ein Rebuild kann weniger Free-Eintraege liefern, ohne dass sich am Code etwas geaendert hat. Wer die Free-Modelle im Picker will, muß `--include-unverified-free` mitgeben; die Zahl ist nicht reproduzierbar.
+- **Abgrenzung Ori:** `ori harness setup codex` verworfen — Windows-Desktop unverifiziert, Konflikt mit dem Go-Proxy, umgeht den kuratierten Filter. `ori codex` waere der risikoarme Test, Ori ist aber nicht installiert.
+
+## Work State
+### Completed
+- Kataloge: picker 13 (8 bewertet + 5 free), go 5, zen 2, proxy 7; Backups `*.backup-20261105-184533`; Loader-Verify exit 0.
+- Suite `1090 passed, 6 skipped, 16 subtests`; `ruff check` clean.
+- `switch-provider.ps1 -Check`: `catalog: ok` fuer `opencode-go/mimo-v2.6-flash`.
+
+### Active
+- Commit im Fork auf `main`; Push bleibt beim Nutzer.
+
+### Blocked
+- Keiner.
+
+## Next Move
+1. Commit `main` im Fork, danach `git push fork main` durch den Nutzer.
+2. Bei jedem Rebuild `--include-unverified-free` mitgeben, sonst verschwinden die Free-Eintraege wieder.
+
+## Relevant Files
+- `tools/codex-picker/catalog_rules.py`: `is_free_variant` (Gateway) und `is_free_offer` (Angebot).
+- `tools/codex-picker/build_provider_catalogs.py`: Flag, Auswahlgrund, Audit `criteria.free_variants.unverified_free_exception`.
+- `tools/codex-picker/export_review_csv.py`: Ausnahme nur bei `$0` und ohne Score.
+- `tools/codex-picker/repair-threads.py`: Codex-Thread-Reparatur mit Sicherung.
+- `tests/test_codex_picker_selection.py`, `tests/test_codex_picker_csv.py`, `tools/codex-picker/README.md`, `METHODOLOGY.md`, `CHANGELOG.md`.
+
+## Important Context
+- Push-Ziel ist ausschliesslich `fork` (`pskraemer11/codex-provider-gateway`); `origin` bleibt Referenz.
+- Der Proxy lief waehrend aller Builds; die Kataloge sind live geprueft.
+
+
+

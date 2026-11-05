@@ -14,6 +14,12 @@ OpenCode's own Go docs, so they are certified here without an upstream bump:
   mimo-v2.6-pro        -> openai_chat        (/go/openai/v1/chat/completions)
 Keep this block when rebasing onto a newer upstream commit, and drop each
 entry once upstream lists it.
+
+Not available (do not add): `mimo-v2.6` without a suffix. The Go gateway
+answers `Upstream request failed: Model is unavailable.` for it (checked
+2026-11-05 against /zen/go/v1/chat/completions), while `mimo-v2.6-flash` and
+`mimo-v2.6-pro` return 200 with `billing_source: go`. Only the two variants
+exist.
 """
 
 from __future__ import annotations
@@ -72,9 +78,7 @@ DOCUMENTED_MESSAGES_MODELS: Final = frozenset(
     }
 )
 
-DOCUMENTED_GO_MODELS: Final = (
-    DOCUMENTED_RESPONSES_MODELS | DOCUMENTED_CHAT_MODELS | DOCUMENTED_MESSAGES_MODELS
-)
+DOCUMENTED_GO_MODELS: Final = DOCUMENTED_RESPONSES_MODELS | DOCUMENTED_CHAT_MODELS | DOCUMENTED_MESSAGES_MODELS
 
 # These IDs remain present in the live /models catalog and have a verified
 # protocol family, but are not part of the current public documentation table.

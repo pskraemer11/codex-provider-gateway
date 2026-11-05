@@ -2,8 +2,34 @@
 
 ## Unreleased
 
+### Changed
+
+- `go_models.py` documents that `mimo-v2.6` without a suffix is not a Go
+  model. The gateway answers `Upstream request failed: Model is unavailable.`
+  (checked 2026-11-05), while `mimo-v2.6-flash` and `mimo-v2.6-pro` return 200
+  with `billing_source: go`. Only those two variants are certified, so the list
+  must not grow a third entry on a later rebase.
+- Free-tier routes of the OpenCode gateway never enter a generated Go or Zen
+  catalog any more. `catalog_rules.is_free_variant` excludes `-free` routes for
+  `go` and `zen`; the former `PINNED_FREE_MODELS` /
+  `user_pinned_free_exception` path is removed. Reason: Codex as a harness
+  receives `403 FreeTierError` or `429 FreeUsageLimitError` from opencode.ai
+  (measured 2026-11-05). OpenRouter is reached directly at
+  `openrouter.ai/api/v1` and is not affected: its `:free` models answered
+  HTTP 200 and stay eligible under the normal filter. The builder counts the
+  excluded gateway routes per provider in
+  `criteria.free_variants.excluded_counts` and prints the total.
+- `INPUT_PRICE_LIMIT` is `$0.50/M` and `MIN_CALIBRATED_SCORE` is `40.0` again.
+  Both stay in `catalog_rules.py` rather than in the invocation, so a rebuild
+  cannot silently fall back to the previous `$0.30`/`45` values.
+
 ### Added
 
+- `--include-unverified-free` keeps OpenRouter `:free` routes that have a
+  verified `$0` input price but no benchmark score. They enter the catalog as
+  `selection_reason=unverified_free_exception`, stay `score: null`, and rank
+  below scored models. The flag never applies to Go or Zen, which remain
+  blocked. Default stays strict: no benchmark, no entry.
 - Every successful AA fetch is persisted as a rolling snapshot
   at `tools/codex-picker/data/artificial-analysis-live-snapshot.json`
   (git-ignored, atomically replaced, overwritten on the next build). When the

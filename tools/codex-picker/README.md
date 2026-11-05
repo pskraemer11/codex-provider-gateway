@@ -28,6 +28,18 @@ catalogs are backed up before replacement, and the Codex loader is verified
 after writing. API credentials are read only from
 `ARTIFICIAL_ANALYSIS_API_KEY` and the optional `OPENROUTER_API_KEY`.
 
+`--include-unverified-free` keeps OpenRouter's `:free` routes that cost nothing
+but have no benchmark score. They enter the catalog only at a verified `$0`
+input price, stay `unverified` (no score, ranked below scored models) and are
+marked with `selection_reason=unverified_free_exception`. Without the flag the
+default stays strict: no benchmark, no entry. The flag never applies to Go or
+Zen.
+
+Free models cannot run through the OpenCode Go/Zen proxy: as a harness, Codex
+receives `403 FreeTierError` or `429 FreeUsageLimitError` from `opencode.ai`.
+Only the direct OpenRouter provider, which talks to `openrouter.ai/api/v1` with
+its own key, can use them.
+
 The picker uses `CODEX_HOME/.tmp/bundled-catalog.json` when it exists. If that
 file is absent, it obtains a full model template from `codex debug models
 --bundled`, which ignores the configured `model_catalog_json` and therefore
@@ -38,12 +50,14 @@ The default proxy URL follows `OPENCODE_GO_PROXY_PORT` and otherwise uses
 `http://127.0.0.1:8787/v1/models`.
 
 The initial working input-price cap was `$0.50/M`. After catalog review it was
-lowered to `$0.25/M`, and the current default is the strict cap of `$0.30/M`.
+lowered to `$0.25/M`, then set to `$0.30/M`, and since 2026-11-05 the default is
+the strict cap of `$0.50/M`.
 The ordinary
 selection requires input price strictly below that cap and a calibrated AA
-Intelligence score strictly above `45/100`. The `45` default keeps
-`zen/gpt-6-luna` (AA raw 27.8, calibrated ≈ 45.1) selectable, which is the model
-the root Codex selection points at; `--min-intelligence-score` raises it again.
+Intelligence score strictly above `40/100`. The `40` default keeps
+`zen/gpt-6-luna` (AA raw 27.8, calibrated ≈ 45.1) selectable with margin, which
+is the model the root Codex selection points at; `--min-intelligence-score`
+raises it again.
 The dated AA snapshot from the
 AA Free API is a benchmark-data fallback (not a free-model
 price list) and is used only when the live Intelligence population is absent
@@ -59,14 +73,14 @@ base model (the highest reasoning level). The price and score
 filters therefore run after calibration, and a missing score is never converted
 to zero. Each catalog lists a model once per provider route; the reasoning
 intensity stays the entry's `supported_reasoning_levels`/`default_reasoning_level`
-sub-selection, and effort-suffixed duplicate routes are collapsed. Five
-explicitly requested free routes are included only when their
-provider source confirms `$0` input price, and remain marked `unverified` when
-no benchmark is available:
-
-- OpenRouter: `cohere/north-mini-code:free`, `openrouter/free`
-- Zen: `glm-5.3-flash-free`, `deepseek-v4.1-flash-free`,
-  `mimo-v2.6-flash-free`
+sub-selection, and effort-suffixed duplicate routes are collapsed. Free-tier
+routes of the OpenCode gateway (Go and Zen) are never included: Codex receives
+`403 FreeTierError` or `429 FreeUsageLimitError` for them, so they cannot run
+outside OpenCode itself. The rule lives in `catalog_rules.is_free_variant` and
+matches `-free` routes for `go` and `zen` only. OpenRouter is reached directly
+at `openrouter.ai/api/v1` with its own key, so its `:free` models stay eligible
+under the normal filter (HTTP 200 measured 2026-11-05) and keep OpenRouter's
+own rate limits. The former `user_pinned_free_exception` is gone.
 
 `deepseek/deepseek-v4.1-flash-1017` is the preferred OpenRouter model only if it
 passes the normal filters and appears in the generated catalog. Similar-looking
@@ -90,8 +104,7 @@ The current human-review snapshot is
 [`provider-selection-review-2026-10-31.csv`](provider-selection-review-2026-10-31.csv).
 It contains one row for each evaluated candidate below the input-price cap,
 including unselected models and the exact raw index values/provenance in JSON
-cells. The five selected free routes have blank scores and an explicit exception
-reason. It predates the full-population score policy and is retained as
+cells. It predates the full-population score policy and is retained as
 historical review evidence. This dated report is a non-live reconstruction from the successful
 2026-10-30 audit because the subsequent AA API rebuild was
 rate-limited; its provenance is recorded in the audit JSON.

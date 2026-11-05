@@ -9,20 +9,22 @@ not zero.
 ## Price policy history
 
 The initial working input-price cap was `$0.50/M`. After reviewing the model
-catalog, it was lowered to `$0.25/M`, which excluded one model. The current
-default is strictly below `$0.30/M`; a model priced at exactly `$0.30/M` does
-not qualify. `catalog_rules.INPUT_PRICE_LIMIT` is the single source used by
+catalog, it was lowered to `$0.25/M`, which excluded one model, then set to
+`$0.30/M`. Since 2026-11-05 the default is strictly below `$0.50/M` again: the
+price cap is a hard ceiling, and the quality threshold does the selecting. A
+model priced at exactly `$0.50/M` does not qualify.
+`catalog_rules.INPUT_PRICE_LIMIT` is the single source used by
 selection, audit reporting, CSV validation, and the builder's printed criteria.
 
 The initial quality threshold was `> 70/100` on a scale calibrated only over
 price-eligible candidates. That scale moved whenever the cheap candidate set
 changed. The current policy calibrates first over the complete usable AA
 Intelligence population and applies provider price and quality filters
-afterwards. The threshold is `> 45/100`; `catalog_rules.MIN_CALIBRATED_SCORE`
+afterwards. The threshold is `> 40/100`; `catalog_rules.MIN_CALIBRATED_SCORE`
 is the single source used by selection, CLI defaults, audit reporting, and the
-builder's printed criteria. `45` keeps `zen/gpt-6-luna` (AA raw 27.8,
-calibrated ≈ 45.1) in the proxy catalog, which is the model the root Codex
-selection points at.
+builder's printed criteria. `40` keeps `zen/gpt-6-luna` (AA raw 27.8,
+calibrated ≈ 45.1) in the proxy catalog with margin; `--min-intelligence-score`
+raises it again.
 
 ## Price evidence
 
@@ -32,7 +34,7 @@ selection points at.
 
 For Go and Zen, the audit records the minimum and maximum published input price
 for a route. Normal selection requires the maximum listed price to be strictly
-below `$0.30/M`; the CSV exposes both values. The filter does not use average
+below `$0.50/M`; the CSV exposes both values. The filter does not use average
 per-task costs.
 
 ## Benchmark score
@@ -94,10 +96,10 @@ usable Intelligence value remain `unverified` and are not selected. The
 CSV preserves the final calibrated score, `score_method`, benchmark/transport
 source, identity match, and the raw index dictionaries used for each candidate.
 
-## Selection and explicit exceptions
+## Selection and free-tier exclusion
 
 A normal candidate is selected only when input price is strictly below
-`$0.30/M` and calibrated score is strictly greater than `45/100`. Missing
+`$0.50/M` and calibrated score is strictly greater than `40/100`. Missing
 benchmark values are never substituted with zero.
 
 Each catalog lists a model once per provider route. The reasoning intensity is
@@ -108,14 +110,26 @@ cheaper, then the shorter slug) and records the dropped ids in
 `deduplicated_reasoning_variants`. `opencode-go/` and `zen/` are different
 billing routes and are never merged into each other.
 
-Five explicitly requested free routes are the only score exceptions. They are
-selected only when the provider source confirms exactly `$0` input price and
-remain `score: null`, `benchmark_source=unverified`, and
-`selection_reason=user_pinned_free_exception` when no benchmark is available:
+Free-tier routes of the OpenCode gateway (Go and Zen) are never part of a
+catalog, even at a verified `$0` input price. They cannot work in Codex: the
+gateway answers `403 FreeTierError` ("free tier can only be used from within
+OpenCode") for free models and `429 FreeUsageLimitError` with a retry time in
+hours when the free allowance is exhausted (measured 2026-11-05).
+`catalog_rules.is_free_variant` therefore matches `-free` routes for `go` and
+`zen` only.
 
-- OpenRouter: `cohere/north-mini-code:free`, `openrouter/free`
-- Zen: `glm-5.3-flash-free`, `deepseek-v4.1-flash-free`,
-  `mimo-v2.6-flash-free`
+OpenRouter is a different path. Codex talks to `openrouter.ai/api/v1` directly
+with its own key, not through the proxy and not through the OpenCode gateway.
+Its `:free` models answered HTTP 200 on 2026-11-05
+(`cohere/north-mini-code:free`, `openrouter/free`) and stay eligible under the
+normal price and score filter, with OpenRouter's own free-tier rate limits.
+
+`--include-unverified-free` extends that path only: an OpenRouter free route
+with a verified `$0` input price but no benchmark becomes
+`selection_reason=unverified_free_exception`, keeps `score: null`, and ranks
+below every scored model. Without the flag the default stays strict. Go and Zen
+free routes are blocked in both cases; the builder counts them per provider in
+`criteria.free_variants.excluded_counts`.
 
 `deepseek/deepseek-v4.1-flash-1017` is the preferred OpenRouter default only
 when it passes the ordinary price and score filters. Similar Go/Zen IDs are not

@@ -105,11 +105,13 @@ def rows_from_audit(payload: dict[str, Any]) -> list[dict[str, str]]:
         if not isinstance(selected, bool):
             raise ValueError(f"candidate selected flag is not boolean: {provider}/{model_id}")
         selection_reason = candidate.get("selection_reason")
-        if selected and selection_reason == "user_pinned_free_exception":
+        if selected and selection_reason == "unverified_free_exception":
             if price_low != 0 or price_high != 0 or score is not None:
-                raise ValueError(f"free exception has non-zero price or a fabricated score: {provider}/{model_id}")
+                raise ValueError(
+                    f"unverified free exception has non-zero price or a fabricated score: {provider}/{model_id}"
+                )
         elif selected and (score is None or float(score) <= score_limit):
-            raise ValueError(f"selected non-exception does not pass score threshold: {provider}/{model_id}")
+            raise ValueError(f"selected model does not pass score threshold: {provider}/{model_id}")
         if score is not None and not 0 <= float(score) <= 100:
             raise ValueError(f"calibrated score is outside 0..100: {provider}/{model_id}")
 

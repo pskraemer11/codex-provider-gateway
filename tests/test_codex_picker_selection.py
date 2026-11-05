@@ -169,38 +169,35 @@ def test_check_requires_live_proxy_unless_cache_is_explicit(
         assert "Warnung: lokaler Proxy nicht erreichbar" in output
 
 
-def test_check_displays_available_intelligence_score_for_free_exception(
+def test_check_reports_excluded_free_variants(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     catalogs = {provider: {"models": []} for provider in ("openrouter", "go", "zen", "proxy")}
     audit = _cached_proxy_audit()
     audit["sources"]["opencode_proxy"]["live_verified"] = True
-    audit["evaluated_candidates"] = [{"provider": "zen", "id": "zen/scored-model", "score": 68.765}]
-    audit["models"] = [
-        {
-            "provider": "zen",
-            "id": "zen/deepseek-v4.1-flash-free",
-            "selection_reason": "user_pinned_free_exception",
-            "score": 72.56,
+    audit["criteria"] = {
+        "free_variants": {
+            "excluded_counts": {"openrouter": 2, "go": 0, "zen": 3},
         }
-    ]
+    }
+    audit["evaluated_candidates"] = [{"provider": "zen", "id": "zen/scored-model", "score": 68.765}]
     monkeypatch.setattr(builder, "build_catalog_data", lambda **kwargs: (catalogs, audit))
     monkeypatch.setattr(sys, "argv", ["build_provider_catalogs.py", "--check", "--provider", "zen"])
 
     assert builder.main() == 0
     output = capsys.readouterr().out
     assert "zen/scored-model=68.8/100" in output
-    assert "zen: zen/deepseek-v4.1-flash-free (Intelligence-Score 72.6/100)" in output
+    assert "Free-Tier ausgeschlossen: openrouter 2, go 0, zen 3" in output
 
 
 @pytest.mark.parametrize(
     ("identifier", "selection_reason", "input_price"),
     [
         ("zen/scored-model", "price_and_calibrated_score", "0.12"),
-        ("zen/deepseek-v4.1-flash-free", "user_pinned_free_exception", "0"),
+        ("zen/cheap-model", "price_and_calibrated_score", "0.02"),
     ],
 )
-def test_model_selection_score_display_uses_one_decimal_for_regular_and_free_models(
+def test_model_selection_score_display_uses_one_decimal_for_each_price_tier(
     identifier: str, selection_reason: str, input_price: str
 ) -> None:
     entry = builder._make_entry(
@@ -296,13 +293,13 @@ def test_openrouter_intelligence_alone_is_not_an_approved_score_fallback() -> No
 
 
 def test_filter_uses_strict_price_and_score_boundaries() -> None:
-    assert catalog_rules.qualifies_model("0.299999", 45.001)
-    assert catalog_rules.qualifies_model("0.299999", 99)
-    assert not catalog_rules.qualifies_model("0.30", 99)
-    assert not catalog_rules.qualifies_model("0.10", 45)
+    assert catalog_rules.qualifies_model("0.499999", 40.001)
+    assert catalog_rules.qualifies_model("0.499999", 99)
+    assert not catalog_rules.qualifies_model("0.50", 99)
+    assert not catalog_rules.qualifies_model("0.10", 40)
     assert not catalog_rules.qualifies_model(None, 90)
     assert not catalog_rules.qualifies_model("0.10", None)
-    assert not catalog_rules.qualifies_model("0.022", 44.999)
+    assert not catalog_rules.qualifies_model("0.022", 39.999)
 
 
 def test_filter_uses_cli_configurable_strict_price_and_score_boundaries() -> None:
@@ -312,41 +309,125 @@ def test_filter_uses_cli_configurable_strict_price_and_score_boundaries() -> Non
 
 
 def test_picker_price_cap_is_shared_and_reported() -> None:
-    assert catalog_rules.INPUT_PRICE_LIMIT == Decimal("0.30")
+    assert catalog_rules.INPUT_PRICE_LIMIT == Decimal("0.50")
     assert builder.INPUT_PRICE_LIMIT is catalog_rules.INPUT_PRICE_LIMIT
-    assert catalog_rules.MIN_CALIBRATED_SCORE == 45.0
+    assert catalog_rules.MIN_CALIBRATED_SCORE == 40.0
     assert builder.MIN_CALIBRATED_SCORE == catalog_rules.MIN_CALIBRATED_SCORE
     assert builder.selection_criteria_text() == (
-        "Kriterien: Input < $0.30/M Token und kalibrierter AA-Intelligence-Score > 45/100"
+        "Kriterien: Input < $0.50/M Token und kalibrierter AA-Intelligence-Score > 40/100"
     )
     assert builder.selection_criteria_text(Decimal("0.15"), 74) == (
         "Kriterien: Input < $0.15/M Token und kalibrierter AA-Intelligence-Score > 74/100"
     )
 
 
-def test_explicit_free_route_pins_require_verified_zero_input_price() -> None:
-    openrouter_pins = ("cohere/north-mini-code:free", "openrouter/free")
-    zen_pins = ("glm-5.3-flash-free", "deepseek-v4.1-flash-free", "mimo-v2.6-flash-free")
-
-    for identifier in openrouter_pins:
-        assert builder._selection_reason("openrouter", identifier, Decimal("0"), None) == ("user_pinned_free_exception")
-    for identifier in zen_pins:
-        assert builder._selection_reason("zen", identifier, Decimal("0"), None) == "user_pinned_free_exception"
-
-    assert builder._selection_reason("openrouter", openrouter_pins[0], Decimal("0.001"), None) is None
-    assert builder._selection_reason("openrouter", "recursive/flint-v1.0:free", Decimal("0"), None) is None
-    assert builder._selection_reason("go", "deepseek-v4.1-flash-free", Decimal("0"), None) is None
+def test_gateway_free_routes_are_never_selected() -> None:
+    for identifier in ("glm-5.3-flash-free", "deepseek-v4.1-flash-free", "mimo-v2.6-flash-free"):
+        assert builder._selection_reason("zen", identifier, Decimal("0"), 100.0) is None
+    # Free heisst nicht automatisch gesperrt: nur das OpenCode-Gateway ist dicht.
+    assert (
+        builder._selection_reason("zen", "deepseek-v4.1-flash", Decimal("0.10"), 80.0) == "price_and_calibrated_score"
+    )
 
 
-def test_catalog_sort_prefers_selected_deepseek_1017_and_ranks_unverified_free_last() -> None:
+def test_openrouter_free_routes_stay_usable_because_they_bypass_the_gateway() -> None:
+    # Direkter OpenRouter-Key: am 05.11.2026 mit HTTP 200 belegt.
+    assert builder._selection_reason("openrouter", "cohere/north-mini-code:free", Decimal("0"), 100.0) == (
+        "price_and_calibrated_score"
+    )
+    assert builder._selection_reason("openrouter", "openrouter/free", Decimal("0"), 100.0) == (
+        "price_and_calibrated_score"
+    )
+
+
+def test_unverified_free_exception_is_opt_in_and_openrouter_only() -> None:
+    free = "cohere/north-mini-code:free"
+
+    assert builder._selection_reason("openrouter", free, Decimal("0"), None) is None
+    assert (
+        builder._selection_reason("openrouter", free, Decimal("0"), None, include_unverified_free=True)
+        == "unverified_free_exception"
+    )
+    # Go und Zen bleiben gesperrt, auch mit Flag.
+    assert (
+        builder._selection_reason("zen", "glm-5.3-flash-free", Decimal("0"), None, include_unverified_free=True) is None
+    )
+    # Nur bei verifiziertem $0-Inputpreis.
+    assert builder._selection_reason("openrouter", free, Decimal("0.01"), None, include_unverified_free=True) is None
+    # Unverifiziert, aber keine Free-Route.
+    assert (
+        builder._selection_reason(
+            "openrouter", "moonshotai/kimi-k3-lite", Decimal("0.10"), None, include_unverified_free=True
+        )
+        is None
+    )
+
+
+def test_include_unverified_free_flag_reaches_the_builder(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: dict[str, object] = {}
+    catalogs = {provider: {"models": []} for provider in ("openrouter", "go", "zen", "proxy")}
+
+    def fake_build(**kwargs: object) -> tuple[dict, dict]:
+        captured.update(kwargs)
+        return catalogs, _cached_proxy_audit()
+
+    monkeypatch.setattr(builder, "build_catalog_data", fake_build)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_provider_catalogs.py",
+            "--check",
+            "--provider",
+            "openrouter",
+            "--allow-cached-proxy",
+            "--include-unverified-free",
+        ],
+    )
+
+    assert builder.main() == 0
+    capsys.readouterr()
+    assert captured["include_unverified_free"] is True
+
+
+def test_include_unverified_free_defaults_to_false(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: dict[str, object] = {}
+    catalogs = {provider: {"models": []} for provider in ("openrouter", "go", "zen", "proxy")}
+
+    def fake_build(**kwargs: object) -> tuple[dict, dict]:
+        captured.update(kwargs)
+        return catalogs, _cached_proxy_audit()
+
+    monkeypatch.setattr(builder, "build_catalog_data", fake_build)
+    monkeypatch.setattr(
+        sys, "argv", ["build_provider_catalogs.py", "--check", "--provider", "openrouter", "--allow-cached-proxy"]
+    )
+
+    assert builder.main() == 0
+    capsys.readouterr()
+    assert captured["include_unverified_free"] is False
+
+
+def test_free_variant_rule_matches_only_the_gateway_suffix() -> None:
+    assert catalog_rules.is_free_variant("zen", "deepseek-v4.1-flash-free")
+    assert catalog_rules.is_free_variant("go", "some-model-free")
+    assert not catalog_rules.is_free_variant("zen", "deepseek-v4.1-flash")
+    assert not catalog_rules.is_free_variant("openrouter", "cohere/north-mini-code:free")
+    assert not catalog_rules.is_free_variant("openrouter", "openrouter/free")
+    assert not catalog_rules.is_free_variant("openrouter", "moonshotai/kimi-k3")
+
+
+def test_catalog_sort_prefers_selected_deepseek_1017_and_ranks_unverified_last() -> None:
     preferred = {"id": "deepseek/deepseek-v4.1-flash-1017", "score": 70.0, "price": "0.022"}
     scored = {"id": "moonshotai/kimi-k3", "score": 90.0, "price": "0.239"}
-    unverified_free = {"id": "cohere/north-mini-code:free", "score": None, "price": "0"}
+    unverified = {"id": "moonshotai/kimi-k3-lite", "score": None, "price": "0.10"}
 
     assert builder._candidate_sort_key("openrouter", preferred) < builder._candidate_sort_key("openrouter", scored)
-    assert builder._candidate_sort_key("openrouter", scored) < builder._candidate_sort_key(
-        "openrouter", unverified_free
-    )
+    assert builder._candidate_sort_key("openrouter", scored) < builder._candidate_sort_key("openrouter", unverified)
 
 
 def test_min_max_calibration_maps_values_between_population_bounds() -> None:

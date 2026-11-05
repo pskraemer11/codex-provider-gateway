@@ -8,8 +8,43 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 INDEX_NAMES = ("intelligence", "coding", "agentic")
-MIN_CALIBRATED_SCORE = 45.0
-INPUT_PRICE_LIMIT = Decimal("0.30")
+MIN_CALIBRATED_SCORE = 40.0
+INPUT_PRICE_LIMIT = Decimal("0.50")
+
+# Free-Tier-Routen des OpenCode-Gateways sind fuer Harnesses gesperrt. Das
+# Gateway antwortet auf `zen/deepseek-v4.1-flash-free` mit 429
+# `FreeUsageLimitError` (Retry-Zeit in Stunden) und auf andere Free-Modelle mit
+# 403 `FreeTierError` ("free tier can only be used from within OpenCode").
+# Codex ist ein Harness, also ausserhalb (gemessen 05.11.2026).
+#
+# Die Regel gilt deshalb nur fuer `go` und `zen`, die beide ueber opencode.ai
+# laufen. OpenRouter wird direkt angesprochen (`openrouter.ai/api/v1`) und
+# liefert Free-Modelle an jeden gueltigen Key: am 05.11.2026 antworteten
+# `cohere/north-mini-code:free` und `openrouter/free` dort mit HTTP 200.
+FREE_VARIANT_SUFFIXES = {"go": "-free", "zen": "-free"}
+OPENROUTER_FREE_SUFFIX = ":free"
+OPENROUTER_FREE_IDS = frozenset({"openrouter/free"})
+
+
+def is_free_variant(provider: str, identifier: str) -> bool:
+    """True fuer Free-Routen des OpenCode-Gateways, die in Codex nicht nutzbar sind."""
+    suffix = FREE_VARIANT_SUFFIXES.get(provider)
+    if suffix is None:
+        return False
+    return identifier.endswith(suffix)
+
+
+def is_free_offer(provider: str, identifier: str) -> bool:
+    """True fuer jede Free-Route, unabhaengig davon, ob sie in Codex nutzbar ist.
+
+    Die Unterscheidung zaehlt: `is_free_variant` blockiert, `is_free_offer`
+    erkennt das Angebot. Nur OpenRouter-Routen duerfen als unverifizierte
+    Ausnahme in den Katalog (`--include-unverified-free`).
+    """
+    if provider == "openrouter":
+        return identifier.endswith(OPENROUTER_FREE_SUFFIX) or identifier in OPENROUTER_FREE_IDS
+    return is_free_variant(provider, identifier)
+
 
 # AA lists one row per reasoning effort. The base slug is usually the highest
 # level, but not always (e.g. ``gemini-3-5-flash-medium`` beats its base row).

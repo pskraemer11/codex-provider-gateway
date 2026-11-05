@@ -28,6 +28,8 @@ from catalog_rules import (
     MIN_CALIBRATED_SCORE,
     aa_model_base,
     finite_number,
+    is_free_offer,
+    is_free_variant,
     normalized_component,
     qualifies_model,
     score_candidate,
@@ -50,17 +52,6 @@ CODEX_TEMPLATE_TIMEOUT_SEC = 60
 TASK_TYPES = {"intelligence": "intelligence_index", "coding": "coding_index", "agentic": "agentic_index"}
 USD_PER_MILLION = Decimal("1000000")
 SCORE_LIMIT = MIN_CALIBRATED_SCORE
-PINNED_FREE_MODELS = {
-    "openrouter": frozenset({"cohere/north-mini-code:free", "openrouter/free"}),
-    "zen": frozenset({"glm-5.3-flash-free", "deepseek-v4.1-flash-free", "mimo-v2.6-flash-free"}),
-}
-PINNED_FREE_LABELS = {
-    "cohere/north-mini-code:free": "(O.R.) North Mini Code (free)",
-    "openrouter/free": "(O.R.) Free Models Router",
-    "glm-5.3-flash-free": "Zen · GLM-5.3-Flash Free",
-    "deepseek-v4.1-flash-free": "Zen · DeepSeek V4.1 Flash Free",
-    "mimo-v2.6-flash-free": "Zen · MiMo V2.6 Flash Free",
-}
 PREFERRED_MODEL_IDS = {"openrouter": "deepseek/deepseek-v4.1-flash-1017"}
 DEFAULT_REASONING_LEVELS = [
     {"effort": "low", "description": "Fast responses with lighter reasoning"},
@@ -825,7 +816,10 @@ def _selection_reason(
     *,
     input_price_limit: Decimal = INPUT_PRICE_LIMIT,
     min_calibrated_score: float = MIN_CALIBRATED_SCORE,
+    include_unverified_free: bool = False,
 ) -> str | None:
+    if is_free_variant(provider, identifier):
+        return None
     if qualifies_model(
         input_price,
         score,
@@ -833,8 +827,14 @@ def _selection_reason(
         min_calibrated_score=min_calibrated_score,
     ):
         return "price_and_calibrated_score"
-    if identifier in PINNED_FREE_MODELS.get(provider, ()) and input_price == 0:
-        return "user_pinned_free_exception"
+    if (
+        include_unverified_free
+        and provider == "openrouter"
+        and is_free_offer(provider, identifier)
+        and score is None
+        and input_price == 0
+    ):
+        return "unverified_free_exception"
     return None
 
 
@@ -1024,12 +1024,6 @@ def _format_intelligence_score(score: float | None) -> str:
     return f"{score:.1f}/100" if score is not None else "unverified"
 
 
-def _free_exception_display(item: dict[str, Any]) -> str:
-    """One pinned-free line for the selection report, including available scores."""
-    score = _format_intelligence_score(item.get("score"))
-    return f"{item['provider']}: {item['id']} (Intelligence-Score {score})"
-
-
 def _make_entry(
     *,
     provider: str,
@@ -1055,8 +1049,7 @@ def _make_entry(
     if billing_provider == "zen":
         limit_text += "; Pay-as-you-go"
     score_text = _format_intelligence_score(score)
-    exception_text = " · Free-Ausnahme" if selection_reason == "user_pinned_free_exception" else ""
-    entry["display_name"] = f"{label} · {price_text} · Intelligence-Score {score_text}{exception_text}{limit_text}"
+    entry["display_name"] = f"{label} · {price_text} · Intelligence-Score {score_text}{limit_text}"
     benchmark_source = "AA" if score is not None else "unverified"
     entry["description"] = (
         f"{label} — {identifier}; {price_text}{limit_text}; AA-Intelligence-Score {score_text}; "
@@ -1145,6 +1138,7 @@ def build_catalog_data(
     persist_live_snapshot: bool = True,
     input_price_limit: Decimal = INPUT_PRICE_LIMIT,
     min_calibrated_score: float = MIN_CALIBRATED_SCORE,
+    include_unverified_free: bool = False,
     proxy_models_url: str | None = None,
     codex_bin: str = "codex",
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
@@ -1195,7 +1189,7 @@ def build_catalog_data(
             "direct_aa_identity_match": 0,
             "score_available": 0,
             "selected": 0,
-            "user_pinned_free_exceptions": 0,
+            "free_variants_excluded": 0,
             "highest_score": None,
             "highest_score_model": None,
         }
@@ -1244,6 +1238,9 @@ def build_catalog_data(
     candidates: list[dict[str, Any]] = []
     for model in or_rows:
         identifier = str(model["id"])
+        if is_free_variant("openrouter", identifier):
+            diagnostics["openrouter"]["free_variants_excluded"] += 1
+            continue
         price = _price_per_million(model)
         if price is None or price >= input_price_limit:
             continue
@@ -1267,6 +1264,7 @@ def build_catalog_data(
             score,
             input_price_limit=input_price_limit,
             min_calibrated_score=min_calibrated_score,
+            include_unverified_free=include_unverified_free,
         )
         selected = selection_reason is not None
         evaluated.append(
@@ -1290,13 +1288,7 @@ def build_catalog_data(
         if not selected:
             continue
         diagnostics["openrouter"]["selected"] += 1
-        if selection_reason == "user_pinned_free_exception":
-            diagnostics["openrouter"]["user_pinned_free_exceptions"] += 1
-        label = (
-            (display_overrides or {}).get(identifier)
-            or PINNED_FREE_LABELS.get(identifier)
-            or f"(O.R.) {model.get('name') or identifier}"
-        )
+        label = (display_overrides or {}).get(identifier) or f"(O.R.) {model.get('name') or identifier}"
         entry = _make_entry(
             provider="openrouter",
             identifier=identifier,
@@ -1337,6 +1329,9 @@ def build_catalog_data(
     ):
         prefix = "opencode-go/" if source_provider == "go" else "zen/"
         for route_id in route_ids:
+            if is_free_variant(source_provider, route_id):
+                diagnostics[source_provider]["free_variants_excluded"] += 1
+                continue
             prices = [tier.input_price for tier in price_rows.get(route_id, [])]
             if not prices or max(prices) >= input_price_limit:
                 continue
@@ -1365,9 +1360,8 @@ def build_catalog_data(
                 score,
                 input_price_limit=input_price_limit,
                 min_calibrated_score=min_calibrated_score,
+                include_unverified_free=include_unverified_free,
             )
-            if selection_reason == "user_pinned_free_exception" and any(price != 0 for price in prices):
-                selection_reason = None
             selected = selection_reason is not None
             evaluated.append(
                 {
@@ -1391,15 +1385,9 @@ def build_catalog_data(
             if not selected:
                 continue
             diagnostics[source_provider]["selected"] += 1
-            if selection_reason == "user_pinned_free_exception":
-                diagnostics[source_provider]["user_pinned_free_exceptions"] += 1
             limits = sorted({tier.monthly_limit for tier in price_rows.get(route_id, []) if tier.monthly_limit})
             model_name = names_by_id.get(route_id, route_id).title()
-            label = (
-                f"Go · {model_name}"
-                if source_provider == "go"
-                else PINNED_FREE_LABELS.get(route_id, f"Zen · {model_name}")
-            )
+            label = f"Go · {model_name}" if source_provider == "go" else f"Zen · {model_name}"
             direct_id = _direct_provider_identifier(source_provider, route_id)
             for output_provider, output_id in ((source_provider, direct_id), ("proxy", full_id)):
                 billing_provider = source_provider if output_provider == "proxy" else output_provider
@@ -1484,13 +1472,26 @@ def build_catalog_data(
             "calibrated_score_strictly_greater_than": min_calibrated_score,
             "calibration_population": "all usable AA Intelligence values before provider price filtering",
             "preferred_default_model_if_selected": PREFERRED_MODEL_IDS,
-            "explicit_free_exceptions": {
-                provider: sorted(model_ids) for provider, model_ids in PINNED_FREE_MODELS.items()
+            "free_variants": {
+                "policy": "Free-Tier-Routen des OpenCode-Gateways werden nie aufgenommen: Harnesses erhalten 403 FreeTierError oder 429 FreeUsageLimitError. OpenRouter wird direkt angesprochen und ist nicht betroffen.",
+                "rule": {
+                    "go": "route endet auf '-free'",
+                    "zen": "route endet auf '-free'",
+                },
+                "unverified_free_exception": {
+                    "enabled": include_unverified_free,
+                    "scope": "nur OpenRouter; Go und Zen bleiben gesperrt",
+                    "selected": sorted(
+                        str(item["id"])
+                        for item in candidates
+                        if item.get("selection_reason") == "unverified_free_exception"
+                    ),
+                },
+                "excluded_counts": {
+                    provider: diagnostics[provider]["free_variants_excluded"]
+                    for provider in ("openrouter", "go", "zen")
+                },
             },
-            "free_exception_handling": (
-                "Explicit user-pinned routes are included only at verified $0 input price; "
-                "missing benchmark scores stay unverified and rank below scored models."
-            ),
             "calibration": "AA Intelligence Index as a Min-Max scale over all usable values in the selected AA population before provider price filtering (minimum=0, maximum=100, clamping outside the observed range); populations with fewer than two values or all-zero values are unusable",
             "score_policy": (
                 "Only calibrated AA Intelligence Index is selectable. Use the live AA population; "
@@ -1668,6 +1669,15 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
             "Live-/Cache-Konsistenzpruefung bleibt aktiv"
         ),
     )
+    parser.add_argument(
+        "--include-unverified-free",
+        action="store_true",
+        help=(
+            "unverifizierte Free-Routen von OpenRouter aufnehmen (nur $0-Inputpreis, "
+            "ohne Benchmark-Score, im Eintrag als unverified markiert); "
+            "Go- und Zen-Free-Routen bleiben immer gesperrt"
+        ),
+    )
     args = parser.parse_args()
     if args.out and args.provider == "all":
         parser.error("--out ist nur mit genau einem --provider erlaubt.")
@@ -1681,6 +1691,7 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
             persist_live_snapshot=not args.check,
             input_price_limit=args.input_price_limit,
             min_calibrated_score=args.min_calibrated_score,
+            include_unverified_free=args.include_unverified_free,
             proxy_models_url=args.proxy_url,
             codex_bin=args.codex_bin,
         )
@@ -1696,7 +1707,7 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
     }
     providers = list(filenames) if args.provider == "all" else [args.provider]
     print(selection_criteria_text(args.input_price_limit, args.min_calibrated_score))
-    print("  Ausnahmen: fuenf explizit angeheftete Free-Routen mit verifiziertem $0-Inputpreis")
+    print("  Free-Tier-Routen des OpenCode-Gateways sind ausgeschlossen (in Codex nicht nutzbar)")
     for provider in providers:
         print(f"  {provider}: {len(catalogs[provider]['models'])} Modelle")
     diagnostic_provider = (
@@ -1751,6 +1762,11 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
     if not audit["sources"]["opencode_proxy"].get("live_verified"):
         print("Warnung: lokaler Proxy nicht erreichbar; verwendet wird nur der letzte gespeicherte Katalog.")
     print("OpenRouter-AA-Benchmarktransport: deaktiviert (kein Score-Fallback)")
+    free_counts = audit.get("criteria", {}).get("free_variants", {}).get("excluded_counts", {})
+    if free_counts:
+        print(
+            "Free-Tier ausgeschlossen: " + ", ".join(f"{provider} {count}" for provider, count in free_counts.items())
+        )
     if args.check:
         for provider in ("openrouter", "go", "zen"):
             top = sorted(
@@ -1767,13 +1783,6 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
                     f"  {provider} Top verfuegbare Scores: "
                     + "; ".join(f"{item['id']}={_format_intelligence_score(item['score'])}" for item in top)
                 )
-        free_exceptions = [
-            item for item in audit["models"] if item.get("selection_reason") == "user_pinned_free_exception"
-        ]
-        if free_exceptions:
-            print("  Angeheftete Free-Ausnahmen:")
-            for item in free_exceptions:
-                print(f"    {_free_exception_display(item)}")
         if not audit["sources"]["opencode_proxy"].get("live_verified") and not args.allow_cached_proxy:
             print("Abbruch: Live-Pruefung verlangt einen erreichbaren Proxy oder --allow-cached-proxy.")
             return 1

@@ -84,15 +84,15 @@ def test_csv_preserves_score_price_provenance_and_blank_unverified_score(tmp_pat
             },
             {
                 "provider": "zen",
-                "id": "example/free",
+                "id": "zen/example-unverified",
                 "input_price_min": "0",
                 "input_price_max": "0",
                 "score": None,
                 "score_method": "unverified",
                 "benchmark_source": "unverified",
                 "transport_source": "unverified",
-                "selected": True,
-                "selection_reason": "user_pinned_free_exception",
+                "selected": False,
+                "selection_reason": "",
                 "price_source": "opencode-console-docs",
             },
         ],
@@ -107,7 +107,7 @@ def test_csv_preserves_score_price_provenance_and_blank_unverified_score(tmp_pat
     assert rows[0]["calibrated_score_0_100"] == "80.125"
     assert json.loads(rows[0]["aa_index_values_json"]) == {"intelligence": 42.5}
     assert rows[1]["calibrated_score_0_100"] == ""
-    assert rows[1]["selection_reason"] == "user_pinned_free_exception"
+    assert rows[1]["selection_reason"] == ""
     assert rows[1]["benchmark_source"] == "unverified"
 
 
@@ -143,8 +143,8 @@ def test_csv_rejects_duplicates_and_invalid_selected_scores(tmp_path: Path) -> N
     duplicate = {
         "provider": "zen",
         "id": "example/model",
-                "input_price_min": "0.10",
-                "input_price_max": "0.10",
+        "input_price_min": "0.10",
+        "input_price_max": "0.10",
         "score": 71,
         "selected": True,
         "selection_reason": "price_and_calibrated_score",
@@ -194,3 +194,54 @@ def test_csv_escapes_spreadsheet_formula_like_fields(tmp_path: Path, model_id: s
         row = next(csv.DictReader(handle))
 
     assert row["model_id"] == f"'{model_id}"
+
+
+def test_csv_accepts_the_opt_in_unverified_free_exception(tmp_path: Path) -> None:
+    audit = tmp_path / "audit.json"
+    output = tmp_path / "review.csv"
+    write_audit(
+        audit,
+        [
+            {
+                "provider": "openrouter",
+                "id": "cohere/north-mini-code:free",
+                "input_price": "0",
+                "score": None,
+                "score_method": "unverified",
+                "benchmark_source": "unverified",
+                "transport_source": "unverified",
+                "selected": True,
+                "selection_reason": "unverified_free_exception",
+                "price_source": "openrouter-models-api",
+            }
+        ],
+    )
+
+    assert export_review_csv(audit, output) == 1
+    with output.open(encoding="utf-8-sig", newline="") as handle:
+        row = next(csv.DictReader(handle))
+
+    assert row["selection_reason"] == "unverified_free_exception"
+    assert row["calibrated_score_0_100"] == ""
+    assert row["input_price_min_usd_per_1m"] == "0"
+
+
+def test_csv_rejects_an_unverified_free_exception_with_a_price(tmp_path: Path) -> None:
+    audit = tmp_path / "audit.json"
+    output = tmp_path / "review.csv"
+    write_audit(
+        audit,
+        [
+            {
+                "provider": "openrouter",
+                "id": "cohere/north-mini-code:free",
+                "input_price": "0.01",
+                "score": None,
+                "selected": True,
+                "selection_reason": "unverified_free_exception",
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unverified free exception"):
+        export_review_csv(audit, output)
