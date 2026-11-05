@@ -298,6 +298,14 @@
 - **Korrektur zum Block 19:52:** `max_price` setzt nur die explizite Schwelle `min_coding_score` ausser Kraft. Der Router waehlt weiterhin das beste Coding-Modell auf der Pareto-Frontier zu oder unter diesem Preis — beste Qualitaet zu gegebenem Preis bzw. niedrigster Preis zu gegebener Qualitaet. Die Formulierung "die Preisauswahl gewinnt" war falsch.
 - **Offen (eigene Sitzung):** Der Picker enthaelt auch Modelle, die nicht auf der Pareto-Frontier liegen. Eine Frontier-basierte Auswahl waere ein eigenes Vorhaben und ist nicht Teil dieser Aenderung.
 
+=============== Push 05.11.2026 / 20:10 ================
+- `main` nach `fork` gepusht: `c756943..5622cf2`, drei Commits (Free-Politik, Router, Doku-Korrektur).
+- Pre-Push-Gate: `1094 passed, 6 skipped, 16 subtests`.
+- GitHub-CI (Run 42090856043, Workflow `CI`): **success** auf `5622cf2`.
+- `main` = `fork/main`; Arbeitsbaum sauber.
+- Naechster offener Punkt bleibt die Pareto-Frontier-Auswahl im Picker (eigene Sitzung).
+
+
 
 
 
