@@ -305,8 +305,23 @@
 - `main` = `fork/main`; Arbeitsbaum sauber.
 - Naechster offener Punkt bleibt die Pareto-Frontier-Auswahl im Picker (eigene Sitzung).
 
+=============== Compaction 05.11.2026 / 21:18 ================
+## Objective
+- **Current:** Add an automatic actionlint check for this repository's GitHub Actions workflow files.
+- **Completed:** Added `.github/workflows/actionlint.yml` and recorded the change in CHANGELOG.
 
+## Important Details
+- **Why:** The project test suite checks proxy behavior, not whether GitHub can interpret the workflow definitions. actionlint checks workflow syntax, expressions, and action inputs.
+- **Implementation:** Separate check on push and pull request, using the official image pinned to `rhysd/actionlint:1.7.12`. The image also includes shellcheck and pyflakes; no local Docker or Podman is needed.
+- **Verification:** Local actionlint over the repository workflows: zero findings.
 
+## Work State
+### Completed
+- Workflow + CHANGELOG + this compaction block.
+### Blocked
+- No push by the agent; publishing remains with the user.
 
+## Relevant Files
+- `.github/workflows/actionlint.yml`, `CHANGELOG.md`
 
 

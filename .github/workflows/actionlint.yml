@@ -1,0 +1,20 @@
+# Check GitHub Actions workflow syntax and expression contexts.
+# The pinned official image also includes shellcheck and pyflakes.
+name: actionlint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check workflow files
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color

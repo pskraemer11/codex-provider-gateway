@@ -25,6 +25,7 @@
 
 ### Added
 
+- **actionlint CI:** `.github/workflows/actionlint.yml` checks all GitHub Actions workflows on pushes and pull requests with the pinned official image `rhysd/actionlint:1.7.12`, including shellcheck and pyflakes.
 - `--include-router-models` adds `openrouter/auto` and `openrouter/pareto-code`
   as `router_model_exception`: variable price (`-1`, shown as "variabler
   Preis"), no score, ranked after free routes. Codex cannot send OpenRouter
