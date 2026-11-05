@@ -26,10 +26,12 @@ from catalog_rules import (
     INDEX_NAMES,
     INPUT_PRICE_LIMIT,
     MIN_CALIBRATED_SCORE,
+    ROUTER_MODEL_IDS,
     aa_model_base,
     finite_number,
     is_free_offer,
     is_free_variant,
+    is_router_model,
     normalized_component,
     qualifies_model,
     score_candidate,
@@ -817,7 +819,10 @@ def _selection_reason(
     input_price_limit: Decimal = INPUT_PRICE_LIMIT,
     min_calibrated_score: float = MIN_CALIBRATED_SCORE,
     include_unverified_free: bool = False,
+    include_router_models: bool = False,
 ) -> str | None:
+    if is_router_model(identifier):
+        return "router_model_exception" if include_router_models and provider == "openrouter" else None
     if is_free_variant(provider, identifier):
         return None
     if qualifies_model(
@@ -838,13 +843,14 @@ def _selection_reason(
     return None
 
 
-def _candidate_sort_key(provider: str, candidate: dict[str, Any]) -> tuple[int, bool, bool, float, Decimal, str]:
+def _candidate_sort_key(provider: str, candidate: dict[str, Any]) -> tuple[int, int, bool, bool, float, Decimal, str]:
     """Order a catalog; the proxy lists all Go routes before all Zen routes.
 
     Codex renders the model picker by the catalog ``priority`` field, which the
     builder assigns from this order. Within a route group the previous rule
     still applies: preferred model, scored before unverified, higher score,
-    lower price, id.
+    lower price, id. OpenRouter router slugs carry a variable price and rank
+    after every free route.
     """
     identifier = str(candidate["id"])
     preferred = identifier == PREFERRED_MODEL_IDS.get(provider)
@@ -852,8 +858,10 @@ def _candidate_sort_key(provider: str, candidate: dict[str, Any]) -> tuple[int, 
     route_group = 0
     if provider == "proxy" and not identifier.startswith("opencode-go/"):
         route_group = 1
+    router_rank = 1 if provider == "openrouter" and is_router_model(identifier) else 0
     return (
         route_group,
+        router_rank,
         not preferred,
         score is None,
         -(score if score is not None else 0.0),
@@ -1015,6 +1023,8 @@ def _clone_model(template: dict[str, Any], source: dict[str, Any] | None, slug: 
 
 
 def _price_label(values: list[Decimal]) -> str:
+    if any(value < 0 for value in values):
+        return "variabler Preis"
     low, high = min(values), max(values)
     return f"${low}/M input" if low == high else f"${low}–${high}/M input"
 
@@ -1039,6 +1049,7 @@ def _make_entry(
     price_source: str,
     selection_reason: str,
     plan_fee: str | None = None,
+    extra_note: str = "",
 ) -> dict[str, Any]:
     entry = _clone_model(template, source_model, identifier)
     price_text = _price_label(prices)
@@ -1057,6 +1068,8 @@ def _make_entry(
         f"Basis: {method}; benchmark_source={benchmark_source}; "
         f"transport_source={transport}; price_source={price_source}"
     )
+    if extra_note:
+        entry["description"] += f"; {extra_note}"
     if provider == "openrouter" and identifier != "openai/gpt-6-luna":
         entry["supported_reasoning_levels"] = DEFAULT_REASONING_LEVELS
         entry["default_reasoning_level"] = "medium"
@@ -1139,6 +1152,7 @@ def build_catalog_data(
     input_price_limit: Decimal = INPUT_PRICE_LIMIT,
     min_calibrated_score: float = MIN_CALIBRATED_SCORE,
     include_unverified_free: bool = False,
+    include_router_models: bool = False,
     proxy_models_url: str | None = None,
     codex_bin: str = "codex",
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
@@ -1238,13 +1252,19 @@ def build_catalog_data(
     candidates: list[dict[str, Any]] = []
     for model in or_rows:
         identifier = str(model["id"])
+        router_model = is_router_model(identifier)
+        if router_model and not include_router_models:
+            continue
         if is_free_variant("openrouter", identifier):
             diagnostics["openrouter"]["free_variants_excluded"] += 1
             continue
-        price = _price_per_million(model)
-        if price is None or price >= input_price_limit:
-            continue
-        diagnostics["openrouter"]["under_price_limit"] += 1
+        if router_model:
+            price = Decimal("-1")
+        else:
+            price = _price_per_million(model)
+            if price is None or price >= input_price_limit:
+                continue
+            diagnostics["openrouter"]["under_price_limit"] += 1
         primary, snapshot_values, fallback, join = _source_metrics(identifier, aa_rows, aa_snapshot_rows, or_metrics)
         primary = usable_live_indices(primary, range_sources)
         snapshot_values = usable_snapshot_indices(snapshot_values, range_sources)
@@ -1265,26 +1285,28 @@ def build_catalog_data(
             input_price_limit=input_price_limit,
             min_calibrated_score=min_calibrated_score,
             include_unverified_free=include_unverified_free,
+            include_router_models=include_router_models,
         )
         selected = selection_reason is not None
-        evaluated.append(
-            {
-                "provider": "openrouter",
-                "id": identifier,
-                "input_price": str(price),
-                "score": score,
-                "score_method": method,
-                "selected": selected,
-                "selection_reason": selection_reason,
-                "identity_match": join,
-                "benchmark_source": "artificial-analysis" if score is not None else "unverified",
-                "transport_source": transport_source,
-                "aa_index_values": primary,
-                "aa_snapshot_index_values": snapshot_values,
-                "openrouter_aa_index_values": fallback,
-                "price_source": "openrouter-models-api",
-            }
-        )
+        if not router_model:
+            evaluated.append(
+                {
+                    "provider": "openrouter",
+                    "id": identifier,
+                    "input_price": str(price),
+                    "score": score,
+                    "score_method": method,
+                    "selected": selected,
+                    "selection_reason": selection_reason,
+                    "identity_match": join,
+                    "benchmark_source": "artificial-analysis" if score is not None else "unverified",
+                    "transport_source": transport_source,
+                    "aa_index_values": primary,
+                    "aa_snapshot_index_values": snapshot_values,
+                    "openrouter_aa_index_values": fallback,
+                    "price_source": "openrouter-models-api",
+                }
+            )
         if not selected:
             continue
         diagnostics["openrouter"]["selected"] += 1
@@ -1302,6 +1324,12 @@ def build_catalog_data(
             transport=transport_label,
             price_source="OpenRouter /api/v1/models",
             selection_reason=selection_reason,
+            extra_note=(
+                "Router: Einstellungen accountweit in OpenRouter (Workspace -> Routing, "
+                "Settings -> Tools -> Plugins); Codex sendet keine plugins[]"
+                if router_model
+                else ""
+            ),
         )
         candidates.append(
             {
@@ -1492,6 +1520,17 @@ def build_catalog_data(
                     for provider in ("openrouter", "go", "zen")
                 },
             },
+            "router_models": {
+                "enabled": include_router_models,
+                "ids": sorted(ROUTER_MODEL_IDS),
+                "selected": sorted(
+                    str(item["id"]) for item in candidates if item.get("selection_reason") == "router_model_exception"
+                ),
+                "note": (
+                    "Codex sendet keine plugins[]; cost_tier und min_coding_score werden accountweit "
+                    "in OpenRouter gesetzt (Workspace > Routing, Settings > Tools > Plugins)."
+                ),
+            },
             "calibration": "AA Intelligence Index as a Min-Max scale over all usable values in the selected AA population before provider price filtering (minimum=0, maximum=100, clamping outside the observed range); populations with fewer than two values or all-zero values are unusable",
             "score_policy": (
                 "Only calibrated AA Intelligence Index is selectable. Use the live AA population; "
@@ -1678,6 +1717,16 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
             "Go- und Zen-Free-Routen bleiben immer gesperrt"
         ),
     )
+    parser.add_argument(
+        "--include-router-models",
+        action="store_true",
+        help=(
+            "OpenRouter-Router openrouter/auto und openrouter/pareto-code aufnehmen "
+            "(variabler Preis, kein Benchmark); Router-Einstellungen wie cost_tier und "
+            "min_coding_score werden accountweit in OpenRouter gesetzt, weil Codex "
+            "keine plugins[] sendet"
+        ),
+    )
     args = parser.parse_args()
     if args.out and args.provider == "all":
         parser.error("--out ist nur mit genau einem --provider erlaubt.")
@@ -1692,6 +1741,7 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
             input_price_limit=args.input_price_limit,
             min_calibrated_score=args.min_calibrated_score,
             include_unverified_free=args.include_unverified_free,
+            include_router_models=args.include_router_models,
             proxy_models_url=args.proxy_url,
             codex_bin=args.codex_bin,
         )
@@ -1766,6 +1816,13 @@ def main(*, default_provider: str = "all", display_overrides: dict[str, str] | N
     if free_counts:
         print(
             "Free-Tier ausgeschlossen: " + ", ".join(f"{provider} {count}" for provider, count in free_counts.items())
+        )
+    router_selection = audit.get("criteria", {}).get("router_models", {})
+    if router_selection.get("selected"):
+        print(
+            "Router-Modelle: "
+            + ", ".join(router_selection["selected"])
+            + " (Einstellungen accountweit, Codex sendet keine plugins[])"
         )
     if args.check:
         for provider in ("openrouter", "go", "zen"):

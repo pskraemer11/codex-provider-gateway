@@ -412,6 +412,80 @@ def test_include_unverified_free_defaults_to_false(
     assert captured["include_unverified_free"] is False
 
 
+def test_router_models_are_opt_in_only() -> None:
+    for identifier in ("openrouter/auto", "openrouter/pareto-code"):
+        assert builder._selection_reason("openrouter", identifier, Decimal("-1"), None) is None
+        assert (
+            builder._selection_reason("openrouter", identifier, Decimal("-1"), None, include_router_models=True)
+            == "router_model_exception"
+        )
+    # Nicht ueber Go oder Zen, auch nicht mit Flag.
+    assert builder._selection_reason("zen", "openrouter/auto", Decimal("-1"), None, include_router_models=True) is None
+    # Nur die zwei freigegebenen Router, nicht jeder openrouter/*-Slug.
+    assert (
+        builder._selection_reason("openrouter", "openrouter/fusion", Decimal("-1"), None, include_router_models=True)
+        is None
+    )
+
+
+def test_router_entry_reports_a_variable_price() -> None:
+    entry = builder._make_entry(
+        provider="openrouter",
+        identifier="openrouter/auto",
+        source_model=None,
+        template={"slug": "template"},
+        label="Auto Router",
+        prices=[Decimal("-1")],
+        limits=[],
+        score=None,
+        method="unverified",
+        transport="unverified",
+        price_source="OpenRouter /api/v1/models",
+        selection_reason="router_model_exception",
+        extra_note="Router: Einstellungen accountweit",
+    )
+
+    assert "variabler Preis" in entry["display_name"]
+    assert "$-1" not in entry["display_name"]
+    assert "Router: Einstellungen accountweit" in entry["description"]
+
+
+def test_router_models_sort_after_free_routes() -> None:
+    free = {"id": "cohere/north-mini-code:free", "score": None, "price": "0"}
+    router = {"id": "openrouter/auto", "score": None, "price": "-1"}
+
+    assert builder._candidate_sort_key("openrouter", free) < builder._candidate_sort_key("openrouter", router)
+
+
+def test_include_router_models_flag_reaches_the_builder(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: dict[str, object] = {}
+    catalogs = {provider: {"models": []} for provider in ("openrouter", "go", "zen", "proxy")}
+
+    def fake_build(**kwargs: object) -> tuple[dict, dict]:
+        captured.update(kwargs)
+        return catalogs, _cached_proxy_audit()
+
+    monkeypatch.setattr(builder, "build_catalog_data", fake_build)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_provider_catalogs.py",
+            "--check",
+            "--provider",
+            "openrouter",
+            "--allow-cached-proxy",
+            "--include-router-models",
+        ],
+    )
+
+    assert builder.main() == 0
+    capsys.readouterr()
+    assert captured["include_router_models"] is True
+
+
 def test_free_variant_rule_matches_only_the_gateway_suffix() -> None:
     assert catalog_rules.is_free_variant("zen", "deepseek-v4.1-flash-free")
     assert catalog_rules.is_free_variant("go", "some-model-free")

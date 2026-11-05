@@ -25,6 +25,12 @@
 
 ### Added
 
+- `--include-router-models` adds `openrouter/auto` and `openrouter/pareto-code`
+  as `router_model_exception`: variable price (`-1`, shown as "variabler
+  Preis"), no score, ranked after free routes. Codex cannot send OpenRouter
+  `plugins[]`, so `cost_tier` and `min_coding_score` only apply when stored
+  account-wide; a Pareto `max_price` overrides the score. The audit records
+  `criteria.router_models`.
 - `--include-unverified-free` keeps OpenRouter `:free` routes that have a
   verified `$0` input price but no benchmark score. They enter the catalog as
   `selection_reason=unverified_free_exception`, stay `score: null`, and rank

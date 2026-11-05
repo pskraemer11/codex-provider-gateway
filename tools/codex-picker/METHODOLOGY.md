@@ -131,6 +131,15 @@ below every scored model. Without the flag the default stays strict. Go and Zen
 free routes are blocked in both cases; the builder counts them per provider in
 `criteria.free_variants.excluded_counts`.
 
+`--include-router-models` adds `openrouter/auto` and `openrouter/pareto-code`.
+They carry `selection_reason=router_model_exception`, a variable price (`-1`,
+displayed as "variabler Preis") and no score; they rank after every free route.
+Both are routers, not models: Codex cannot send the OpenRouter `plugins[]` that
+controls `cost_tier` and `min_coding_score`. Those values must be stored
+account-wide (Workspace → Routing, Settings → Tools → Plugins), and a Pareto
+`max_price` overrides `min_coding_score`. The audit records the selection in
+`criteria.router_models`.
+
 `deepseek/deepseek-v4.1-flash-1017` is the preferred OpenRouter default only
 when it passes the ordinary price and score filters. Similar Go/Zen IDs are not
 treated as the same route.

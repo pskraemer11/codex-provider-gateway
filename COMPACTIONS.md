@@ -258,5 +258,42 @@
 - Push-Ziel ist ausschliesslich `fork` (`pskraemer11/codex-provider-gateway`); `origin` bleibt Referenz.
 - Der Proxy lief waehrend aller Builds; die Kataloge sind live geprueft.
 
+=============== Compaction 05.11.2026 / 19:52 ================
+## Objective
+- **Current:** OpenRouter-Router als Variante A in den Picker aufnehmen.
+- **Completed:** `--include-router-models` fuer `openrouter/auto` und `openrouter/pareto-code`; Katalog auf 15 Eintraege erweitert.
+
+## Important Details
+- **Finding (Presets):** Presets speichern keine `plugins`. Per API geprueft: `GET /api/v1/presets/{slug}` liefert `config` mit `model`, `provider`, `reasoning`, `temperature`, `tools`, `cache_*` — aber kein `cost_tier` und kein `min_coding_score`. Was im Dashboard wie eine Router-Stufe aussieht, sind `provider.max_price` (auto 0.5/2, pareto 1/10) und Provider-Filter.
+- **Decision:** Variante A — rohe Slugs ohne Plugin-Injection. `openrouter/auto` laeuft im `low`-Band, `pareto-code` mit `high`. Beide Eintraege zeigen "variabler Preis" und den Hinweis, dass die Konfiguration accountweit gilt.
+- **Finding:** Bei gesetztem Pareto-`max_price` (aktuell 0.5) wird `min_coding_score` ignoriert; die Preisauswahl gewinnt. So steht es im Dashboard-Dialog unter Settings -> Tools -> Pareto Router.
+- **Bewertung:** Der Pareto-Router nutzt den AA Coding Index, unser Filter den Intelligence Index. Beide sind auf 0..100 normiert, messen aber unterschiedliche Achsen; die Zahlen sind nicht vergleichbar.
+- **Nicht aufgenommen:** `openrouter/fusion` (von der Workspace-Server-Tool-Policy gesperrt), `openrouter/bodybuilder` (wird dem Konto nicht angeboten).
+
+## Work State
+### Completed
+- Kataloge: picker 15 (8 bewertet + 5 free + 2 router), go 5, zen 2, proxy 7; Backups `*.backup-20261105-195023`; Loader-Verify exit 0.
+- Fokussierte Tests 91 gruen; `ruff check` clean.
+
+### Active
+- Volle Suite und Commit.
+
+### Blocked
+- Keiner.
+
+## Next Move
+1. Commit im Fork; `git push fork main` bleibt beim Nutzer.
+2. Wenn `cost_tier=medium` oder `min_coding_score=0.40` hart gelten sollen: Variante B bauen (Proxy-Route mit Plugin-Injection und `session_id`).
+
+## Relevant Files
+- `tools/codex-picker/catalog_rules.py`: `ROUTER_MODEL_IDS`, `is_router_model`.
+- `tools/codex-picker/build_provider_catalogs.py`: Flag, variabler Preis, Sortierung hinter Free, Audit `criteria.router_models`.
+- `tests/test_codex_picker_selection.py`, `tools/codex-picker/README.md`, `METHODOLOGY.md`, `CHANGELOG.md`.
+
+## Important Context
+- Router-Eintraege erscheinen in Codex als "variabler Preis · Intelligence-Score unverified"; das Zielmodell steht erst in der Antwort (`model`-Feld).
+- Ein Preset-Slug wuerde zusaetzlich `temperature 0.7`, `reasoning high/xhigh` und Server-Tools erzwingen und die Stufe trotzdem nicht setzen.
+
+
 
 

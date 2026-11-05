@@ -46,6 +46,19 @@ def is_free_offer(provider: str, identifier: str) -> bool:
     return is_free_variant(provider, identifier)
 
 
+# Router-Slugs von OpenRouter. Sie sind selbst kein Modell: der Preis ist
+# variabel (`-1` in der API), ein Benchmark fehlt. Codex kann keine
+# `plugins[]` senden, deshalb werden `cost_tier` und `min_coding_score`
+# accountweit im Dashboard gesetzt (Workspace -> Routing bzw. Settings ->
+# Tools -> Plugins). Der Katalog nimmt sie nur als Eintrag auf.
+ROUTER_MODEL_IDS = frozenset({"openrouter/auto", "openrouter/pareto-code"})
+
+
+def is_router_model(identifier: str) -> bool:
+    """True fuer die freigegebenen OpenRouter-Router mit variablem Preis."""
+    return identifier in ROUTER_MODEL_IDS
+
+
 # AA lists one row per reasoning effort. The base slug is usually the highest
 # level, but not always (e.g. ``gemini-3-5-flash-medium`` beats its base row).
 AA_REASONING_SUFFIXES = (

@@ -40,6 +40,15 @@ receives `403 FreeTierError` or `429 FreeUsageLimitError` from `opencode.ai`.
 Only the direct OpenRouter provider, which talks to `openrouter.ai/api/v1` with
 its own key, can use them.
 
+`--include-router-models` adds the two OpenRouter routers
+`openrouter/auto` and `openrouter/pareto-code`. They are not models: the price
+is variable (`-1` in the API) and there is no benchmark. Codex cannot send
+OpenRouter `plugins[]`, so `cost_tier` and `min_coding_score` take effect only
+when they are stored account-wide — Workspace → Routing for the Auto Router,
+Settings → Tools → Plugins for the Pareto Router. Note that a Pareto
+`max_price` overrides `min_coding_score`. The catalog entry carries the note;
+the catalog cannot enforce the value.
+
 The picker uses `CODEX_HOME/.tmp/bundled-catalog.json` when it exists. If that
 file is absent, it obtains a full model template from `codex debug models
 --bundled`, which ignores the configured `model_catalog_json` and therefore
