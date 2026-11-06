@@ -6,13 +6,13 @@ Agent guidance for this repository. Applies to all agents working here.
 
 This checkout has two remotes with different roles:
 
-| Remote | URL | Role |
-| --- | --- | --- |
-| `fork` | `pskraemer11/codex-provider-gateway` | The user's fork. **The only push target.** `main` tracks `fork/main`. |
-| `origin` | `kartikkabadi/opencode-go-proxy` | Upstream read-only reference. The user does not participate there; never push to it. |
+| Remote   | Role                                                             |
+| -------- | ---------------------------------------------------------------- |
+| `fork`   | Configured user fork; only target when the user performs a push. |
+| `origin` | Upstream read-only reference; never push or open PRs against it. |
 
-- Push with `git push fork main` (or plain `git push`, because `main` tracks
-  `fork/main`). Do not push to `origin` and do not open pull requests against it.
+- The agent does not push. If the user performs a push, use `fork` (for example,
+  `git push fork main`); never push to `origin` or open PRs against it.
 - Feature branches must track `fork/*`, not `origin/*`. If an old branch still
   shows `[origin/main]` in `git branch -vv`, clear it with
   `git branch --unset-upstream <branch>` before working on it.
