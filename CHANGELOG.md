@@ -4,6 +4,9 @@
 
 ### Changed
 
+- **Agent guidance (06.11.2026):** `AGENTS.md` now describes the fork and
+  upstream roles without concrete repository URLs. General working, privacy and
+  Git rules live in `$HOME/AGENTS.md`; the agent does not push.
 - `go_models.py` documents that `mimo-v2.6` without a suffix is not a Go
   model. The gateway answers `Upstream request failed: Model is unavailable.`
   (checked 2026-11-05), while `mimo-v2.6-flash` and `mimo-v2.6-pro` return 200
