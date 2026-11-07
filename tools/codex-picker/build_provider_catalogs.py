@@ -72,6 +72,15 @@ REMOVE_KEYS = (
     "web_search_tool_type",
 )
 
+# Per-model values the provider catalog does not carry, keyed by bare model id
+# so every provider prefix inherits them.
+# gpt-6-luna: Codex 0.164.0 ships this model as a "responses lite" model.
+# Without the flag, long reasoning turns against OpenCode Go end as
+# `incomplete` with reason=max_output_tokens (measured 2026-10-27).
+MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    "gpt-6-luna": {"use_responses_lite": True},
+}
+
 
 class CatalogError(RuntimeError):
     """A required source did not satisfy its data contract."""
@@ -1017,6 +1026,7 @@ def _clone_model(template: dict[str, Any], source: dict[str, Any] | None, slug: 
     entry["upgrade"] = None
     for key in REMOVE_KEYS:
         entry.pop(key, None)
+    entry.update(MODEL_OVERRIDES.get(slug.split("/", 1)[-1], {}))
     if source is None and not slug.startswith("openai/"):
         entry["shell_type"] = "default"
     return entry
